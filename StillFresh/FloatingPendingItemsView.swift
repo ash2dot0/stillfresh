@@ -148,10 +148,6 @@ struct FloatingPendingItemsView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-
-                Image(systemName: "pencil")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.secondary)
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -202,7 +198,7 @@ struct FloatingPendingItemsView: View {
                         }
                         .padding(.horizontal, 4)
                     }
-                    .frame(maxHeight: 300)
+                    .frame(maxHeight: 440)
 
                     HStack(spacing: 10) {
                         Button("Cancel") { onCancel() }

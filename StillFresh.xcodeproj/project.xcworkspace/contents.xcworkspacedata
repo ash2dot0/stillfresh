@@ -4,10 +4,4 @@
    <FileRef
       location = "self:">
    </FileRef>
-   <FileRef
-      location = "group:Haptics.swift">
-   </FileRef>
-   <FileRef
-      location = "group:AppBackground.swift">
-   </FileRef>
 </Workspace>

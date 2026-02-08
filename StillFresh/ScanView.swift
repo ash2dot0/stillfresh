@@ -19,6 +19,8 @@ struct ScanView: View {
     @State private var replaceIndex: Int? = nil
     @State private var previewIndex: Int? = nil
 
+    @State private var editingIndex: Int? = nil
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -38,6 +40,9 @@ struct ScanView: View {
                             },
                             onReplaceScan: { idx in
                                 replaceIndex = idx
+                            },
+                            onEditScan: { idx in
+                                editingIndex = idx
                             },
                             onDeleteScan: { idx in
                                 if scannedImages.indices.contains(idx) {
@@ -90,6 +95,21 @@ struct ScanView: View {
                     onDelete: {
                         scannedImages.remove(at: idx)
                         previewIndex = nil
+                    }
+                )
+            }
+        }
+.fullScreenCover(isPresented: Binding(
+            get: { editingIndex != nil },
+            set: { newValue in if !newValue { editingIndex = nil } }
+        )) {
+            if let idx = editingIndex, scannedImages.indices.contains(idx) {
+                ImageEditorView(
+                    original: scannedImages[idx],
+                    onCancel: { editingIndex = nil },
+                    onSave: { updated in
+                        scannedImages[idx] = updated
+                        editingIndex = nil
                     }
                 )
             }
@@ -325,6 +345,7 @@ private struct ScansSection: View {
     let onProcess: () -> Void
     let onOpenPreview: (Int) -> Void
     let onReplaceScan: (Int) -> Void
+    let onEditScan: (Int) -> Void
     let onDeleteScan: (Int) -> Void
 
     var body: some View {
@@ -336,22 +357,60 @@ private struct ScansSection: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 10) {
                         ForEach(Array(scannedImages.enumerated()), id: \.offset) { idx, img in
-                            Image(uiImage: img)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 120, height: 160)
-                                .clipped()
-                                .cornerRadius(16)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                                )
-                                .accessibilityLabel("Scan \(idx+1)")
-                                .onTapGesture { onOpenPreview(idx) }
-                                .contextMenu {
-                                    Button("Replace scan", systemImage: "camera") { onReplaceScan(idx) }
-                                    Button("Delete", systemImage: "trash", role: .destructive) { onDeleteScan(idx) }
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: img)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 120, height: 160)
+                                    .clipped()
+                                    .cornerRadius(16)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                            .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                                    )
+                                    .accessibilityLabel("Scan \(idx+1)")
+                                    .onTapGesture { onOpenPreview(idx) }
+
+                                // Top-right delete (X)
+                                Button {
+                                    onDeleteScan(idx)
+                                    Haptics.selection()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .symbolRenderingMode(.hierarchical)
+                                        .foregroundStyle(.white.opacity(0.92))
+                                        .shadow(radius: 6, y: 2)
+                                        .padding(8)
                                 }
+                                .buttonStyle(.plain)
+
+                                // Bottom-right magnify/edit
+                                VStack {
+                                    Spacer()
+                                    HStack {
+                                        Spacer()
+                                        Button {
+                                            onEditScan(idx)
+                                            Haptics.selection()
+                                        } label: {
+                                            Image(systemName: "magnifyingglass.circle.fill")
+                                                .font(.system(size: 18, weight: .semibold))
+                                                .symbolRenderingMode(.hierarchical)
+                                                .foregroundStyle(.white.opacity(0.92))
+                                                .shadow(radius: 6, y: 2)
+                                                .padding(8)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            .frame(width: 120, height: 160)
+                            .contextMenu {
+                                Button("Edit", systemImage: "magnifyingglass") { onEditScan(idx) }
+                                Button("Replace scan", systemImage: "camera") { onReplaceScan(idx) }
+                                Button("Delete", systemImage: "trash", role: .destructive) { onDeleteScan(idx) }
+                            }
                         }
                     }
                     .padding(.vertical, 2)
