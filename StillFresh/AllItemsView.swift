@@ -1,10 +1,231 @@
 import SwiftUI
 
+/// Entry point for the tab:
+/// - Root shows two choices (Purchases / All items)
+/// - Also provides a global search. When searching, it shows matching item cells (same as before).
 struct AllItemsView: View {
     @EnvironmentObject private var store: AppStore
 
-    @State private var editMode: EditMode = .inactive
     @State private var showSettings = false
+    @State private var searchText: String = ""
+
+    // 0 = System, 1 = Light, 2 = Dark
+    @AppStorage("sf_appearance") private var appearanceRaw: Int = 0
+    private var preferredScheme: ColorScheme? {
+        switch appearanceRaw {
+        case 1: return .light
+        case 2: return .dark
+        default: return nil
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // Default root options
+                    Section {
+                        NavigationLink {
+                            PurchasesView()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "cart")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .symbolRenderingMode(.hierarchical)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Purchases")
+                                        .font(.headline)
+                                    Text("Grouped by purchase date")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+
+                        NavigationLink {
+                            AllItemsListView(title: "All Items")
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "list.bullet")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .symbolRenderingMode(.hierarchical)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("All items")
+                                        .font(.headline)
+                                    Text("Browse everything")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+                } else {
+                    // Global search results: show item cells exactly like before
+                    let results = globalSearchResults
+
+                    if results.isEmpty {
+                        ContentUnavailableView("No results", systemImage: "magnifyingglass")
+                            .listRowBackground(Color.clear)
+                    } else {
+                        Section {
+                            ForEach(results, id: \.id) { item in
+                                NavigationLink {
+                                    ItemDetailView(item: item)
+                                } label: {
+                                    AllItemRow(item: item)
+                                }
+                                .buttonStyle(.plain)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) {
+                                        store.removeItem(item)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("All Items")
+            .toolbar {
+                // ✅ Settings only on the main All tab root
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                }
+            }
+            .sheet(isPresented: $showSettings) { SettingsView() }
+            .searchable(text: $searchText, prompt: "Search all items")
+        }
+        .preferredColorScheme(preferredScheme)
+    }
+
+    private var globalSearchResults: [ReceiptItem] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return [] }
+
+        // Match same fields you already supported in AllItemsListView
+        return store.items.filter {
+            $0.name.lowercased().contains(q) ||
+            $0.displayName.lowercased().contains(q)
+        }
+    }
+}
+
+// MARK: - Purchases (grouped by purchase day)
+
+struct PurchasesView: View {
+    @EnvironmentObject private var store: AppStore
+
+    var body: some View {
+        List {
+            if purchases.isEmpty {
+                ContentUnavailableView("No purchases yet", systemImage: "cart")
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(purchases) { purchase in
+                    NavigationLink {
+                        PurchaseItemsView(day: purchase.day)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Purchased on \(dateLabel(purchase.day))")
+                                .font(.headline)
+
+                            HStack(spacing: 10) {
+                                Label("\(purchase.itemCount) items", systemImage: "tray.full")
+                                    .labelStyle(.titleAndIcon)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+
+                                if purchase.totalQuantity > purchase.itemCount {
+                                    Text("•  Qty \(purchase.totalQuantity)")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .navigationTitle("Purchases")
+        // ✅ No settings button here
+    }
+
+    private struct PurchaseGroup: Identifiable {
+        let id: Date
+        let day: Date
+        let itemCount: Int
+        let totalQuantity: Int
+    }
+
+    /// Purchases sorted in descending order by date.
+    private var purchases: [PurchaseGroup] {
+        let cal = Calendar.current
+        let grouped = Dictionary(grouping: store.items) { cal.startOfDay(for: $0.purchasedAt) }
+
+        return grouped
+            .map { (day, items) in
+                PurchaseGroup(
+                    id: day,
+                    day: day,
+                    itemCount: items.count,
+                    totalQuantity: items.reduce(0) { $0 + max(1, $1.quantity) }
+                )
+            }
+            .sorted { $0.day > $1.day }
+    }
+
+    private func dateLabel(_ day: Date) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f.string(from: day)
+    }
+}
+
+/// Items for a specific purchase day, with the exact same UX as All Items.
+struct PurchaseItemsView: View {
+    let day: Date
+
+    var body: some View {
+        AllItemsListView(title: title, filter: { item in
+            Calendar.current.isDate(item.purchasedAt, inSameDayAs: day)
+        })
+    }
+
+    private var title: String {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f.string(from: day)
+    }
+}
+
+/// The existing list UI (search / sort / edit-select-delete), reused for both:
+/// - All Items
+/// - A single Purchase's items
+struct AllItemsListView: View {
+    @EnvironmentObject private var store: AppStore
+
+    let title: String
+    let filter: ((ReceiptItem) -> Bool)?
+
+    init(title: String, filter: ((ReceiptItem) -> Bool)? = nil) {
+        self.title = title
+        self.filter = filter
+    }
+
+    @State private var editMode: EditMode = .inactive
     @State private var selection = Set<ReceiptItem.ID>()
     @State private var searchText: String = ""
 
@@ -18,56 +239,43 @@ struct AllItemsView: View {
     }
     @State private var sort: SortOption = .expiry
 
-    // 0 = System, 1 = Light, 2 = Dark
-    @AppStorage("sf_appearance") private var appearanceRaw: Int = 0
-    private var preferredScheme: ColorScheme? {
-        switch appearanceRaw {
-        case 1: return .light
-        case 2: return .dark
-        default: return nil
-        }
-    }
-
     private var isEditing: Bool { editMode.isEditing }
 
     var body: some View {
-        NavigationStack {
-            List(selection: isEditing ? $selection : .constant([])) {
-                ForEach(displayedItems, id: \.id) { item in
-                    row(for: item)
-                        .tag(item.id)
-                }
-                .onDelete(perform: deleteItems)
+        List(selection: isEditing ? $selection : .constant([])) {
+            ForEach(displayedItems, id: \.id) { item in
+                row(for: item)
+                    .tag(item.id)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
-            .navigationTitle("All Items")
-            .toolbar { toolbarContent }
-            .sheet(isPresented: $showSettings) { SettingsView() }
-            .searchable(text: $searchText)
-            .environment(\.editMode, $editMode)
+            .onDelete(perform: deleteItems)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .navigationTitle(title)
+        .toolbar { toolbarContent }
+        .searchable(text: $searchText)
+        .environment(\.editMode, $editMode)
 
-            // ✅ Sticky bottom bar that pushes scroll content above it
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if isEditing {
-                    MinimalSelectionBar(
-                        selectedCount: selection.count,
-                        onClear: {
-                            selection.removeAll()
-                            Haptics.selection()
-                        },
-                        onDelete: { deleteSelected() }
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .padding(.bottom, 10)
-                    .background(.clear)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+        // ✅ Sticky bottom bar that pushes scroll content above it
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isEditing {
+                MinimalSelectionBar(
+                    selectedCount: selection.count,
+                    onClear: {
+                        selection.removeAll()
+                        Haptics.selection()
+                    },
+                    onDelete: { deleteSelected() }
+                )
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 10)
+                .background(.clear)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .preferredColorScheme(preferredScheme)
+
         .onAppear { selection.removeAll() }
         .onChange(of: editMode) { _, newMode in
             if !newMode.isEditing { selection.removeAll() }
@@ -78,16 +286,13 @@ struct AllItemsView: View {
         }
         .animation(.spring(response: 0.25, dampingFraction: 0.9), value: isEditing)
         .animation(.spring(response: 0.25, dampingFraction: 0.9), value: selection.count)
+        // ✅ No settings button here
     }
 
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button { showSettings = true } label: { Image(systemName: "gearshape") }
-        }
-
         ToolbarItem(placement: .topBarTrailing) {
             Button(isEditing ? "Done" : "Edit") {
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -121,7 +326,6 @@ struct AllItemsView: View {
     @ViewBuilder
     private func row(for item: ReceiptItem) -> some View {
         if isEditing {
-            // editing: no navigation, keep selection clean
             AllItemRow(item: item)
                 .contentShape(Rectangle())
                 .buttonStyle(.plain)
@@ -164,6 +368,10 @@ struct AllItemsView: View {
 
     private var displayedItems: [ReceiptItem] {
         var items = store.items
+
+        if let filter {
+            items = items.filter(filter)
+        }
 
         if !searchText.isEmpty {
             let q = searchText.lowercased()
@@ -249,7 +457,7 @@ private struct MinimalSelectionBar: View {
 }
 
 //
-// MARK: - Row (now matches HomeView ItemRow visuals + quantity + mark used)
+// MARK: - Row (matches HomeView ItemRow visuals + quantity + mark used)
 //
 
 private struct AllItemRow: View {
@@ -302,7 +510,6 @@ private struct AllItemRow: View {
 
                     Spacer()
 
-                    // ✅ Quantity button (same as HomeView behavior)
                     Button {
                         editedQuantity = max(1, item.quantity)
                         showEditQuantity = true
@@ -328,7 +535,6 @@ private struct AllItemRow: View {
                 .frame(height: 6)
                 .padding(.top, 6)
 
-                // ✅ Mark used (same as HomeView behavior)
                 HStack {
                     Spacer()
                     Button("Mark used") {

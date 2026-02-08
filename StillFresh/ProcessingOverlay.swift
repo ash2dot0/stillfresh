@@ -5,8 +5,6 @@ struct ProcessingOverlay: View {
     let progress: Double // 0...1 (real progress signal from the pipeline)
     let hint: String
 
-    @State private var pulse = false
-
     // Display progress: smooth + continuously advancing while we wait.
     @State private var displayProgress: Double = 0
     @State private var lastSeenProgress: Double = 0
@@ -29,21 +27,11 @@ struct ProcessingOverlay: View {
                             Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1)
                         )
 
-                    // "Liquid" pulse ring
-                    Circle()
-                        .stroke(.white.opacity(0.25), lineWidth: 2)
-                        .frame(width: pulse ? 92 : 56, height: pulse ? 92 : 56)
-                        .opacity(pulse ? 0.1 : 0.5)
-                        .blur(radius: pulse ? 0 : 0.5)
-                        .animation(.easeOut(duration: 0.9).repeatForever(autoreverses: false), value: pulse)
-
-                    // Progress arc (uses smoothed display progress)
-                    Circle()
-                        .trim(from: 0, to: max(0.02, min(1, displayProgress)))
-                        .stroke(style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
+                    // Single circular progress indicator (smooth + playful but minimal)
+                    ProgressView(value: max(0.02, min(1, displayProgress)))
+                        .progressViewStyle(.circular)
+                        .tint(.white.opacity(0.85))
                         .frame(width: 66, height: 66)
-                        .foregroundStyle(.white.opacity(0.85))
                         .animation(.spring(response: 0.35, dampingFraction: 0.9), value: displayProgress)
 
                     Image(systemName: symbolForStage(stage))
@@ -63,10 +51,6 @@ struct ProcessingOverlay: View {
                     }
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
-
-                    ModernProgressBar(progress: displayProgress)
-                        .padding(.horizontal, 22)
-                        .padding(.top, 2)
                 }
             }
             .padding(20)
@@ -78,7 +62,6 @@ struct ProcessingOverlay: View {
             .padding(.horizontal, 26)
         }
         .onAppear {
-            pulse = true
             displayProgress = max(0.02, min(0.25, progress))
             lastSeenProgress = progress
             lastProgressBump = Date()
@@ -130,49 +113,3 @@ struct ProcessingOverlay: View {
     }
 }
 
-private struct ModernProgressBar: View {
-    let progress: Double
-
-    @State private var sheen = false
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let filled = max(0.06, min(1.0, progress)) * w
-
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.white.opacity(0.10))
-
-                Capsule()
-                    .fill(.white.opacity(0.70))
-                    .frame(width: filled)
-
-                // Moving sheen for a modern "processing" feel.
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(0.00),
-                                .white.opacity(0.35),
-                                .white.opacity(0.00)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(width: 64)
-                    .offset(x: sheen ? w + 64 : -64)
-                    .opacity(0.9)
-                    .blendMode(.plusLighter)
-                    .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: sheen)
-            }
-            .onAppear { sheen = true }
-        }
-        .frame(height: 10)
-        .clipShape(Capsule())
-        .overlay(
-            Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1)
-        )
-    }
-}
