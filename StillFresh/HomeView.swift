@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 struct HomeView: View {
     @EnvironmentObject private var store: AppStore
@@ -7,6 +8,9 @@ struct HomeView: View {
 
     @State private var sort: SortOption = .soonestExpiry
     @State private var activeStorages: Set<StorageMode> = Set(StorageMode.allCases) // default: all selected
+
+    @State private var showSavingsDetail = false
+    @State private var showLossDetail = false
 
     private enum SortOption: String, CaseIterable, Identifiable {
         case soonestExpiry = "Soonest expiry"
@@ -183,39 +187,58 @@ struct HomeView: View {
     }
 
     private var summaryCards: some View {
-        HStack(spacing: 10) {
-            GlassCard {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Needs attention")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("\(expiringCountForRange)")
-                            .font(.title3.weight(.semibold))
-                        Text("items")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            GlassCard {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Potential savings")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(potentialSavingsEstimate, format: .currency(code: Locale.current.currency?.identifier ?? "USD"))
-                            .font(.title3.weight(.semibold))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+        let bucket = store.currentWeekBucket()
+        return HStack(spacing: 12) {
+            StatTile(
+                mainTitle: "Potential savings",
+                subtitle: "This week",
+                amount: bucket.potential.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
+                color: .green,
+                fixedHeight: 90
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 90)
+            .compositingGroup()
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+            StatTile(
+                mainTitle: "Wasted",
+                subtitle: "This week",
+                amount: bucket.wasted.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
+                color: .red,
+                fixedHeight: 90
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 90)
+            .compositingGroup()
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
+        // ✅ real spacing (no spacer hacks) so tiles don't "merge" with pills above or list below
+        .padding(.top, 0)
+        .padding(.bottom, 0)
+        // ✅ keep your sheets as-is
+        .sheet(isPresented: $showSavingsDetail) { WeeklyDeltaSheet(kind: .savings, current: bucket.potential, items: store.items) }
+        .sheet(isPresented: $showLossDetail) { WeeklyDeltaSheet(kind: .loss, current: bucket.wasted, items: store.items) }
     }
 
-    private var expiringList: some View {
-        let cutoff = Date().addingTimeInterval(TimeInterval(daysAhead) * 24 * 3600)
+    
+    // Robust ISO8601 parsing (handles with/without fractional seconds)
+    private func parseISO8601(_ s: String) -> Date? {
+        if let d = ISO8601Helper.formatter.date(from: s) { return d }
+        let f1 = ISO8601DateFormatter()
+        f1.formatOptions = [.withInternetDateTime]
+        if let d = f1.date(from: s) { return d }
+        let f2 = ISO8601DateFormatter()
+        f2.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f2.date(from: s)
+    }
+
+private var expiringList: some View {
+        let cal = Calendar.current
+        let startOfToday = cal.startOfDay(for: Date())
+        // Calendar-inclusive window: daysAhead=2 => include today + next 2 days.
+        let endExclusive = cal.date(byAdding: .day, value: daysAhead + 1, to: startOfToday)
+            ?? startOfToday.addingTimeInterval(TimeInterval(daysAhead + 1) * 24 * 3600)
 
         // Dedup by canonicalKey, but keep the *actual* purchase instance that expires next.
         let grouped: [String: [ReceiptItem]] = Dictionary(grouping: store.items, by: { $0.canonicalKey })
@@ -225,11 +248,13 @@ struct HomeView: View {
 
         for (_, group) in grouped {
             let withDates: [(ReceiptItem, Date)] = group.compactMap { it in
-                guard let d = ISO8601Helper.formatter.date(from: it.effectiveExpiryISO8601) else { return nil }
+                guard let d = parseISO8601(it.effectiveExpiryISO8601) else { return nil }
+                // Only consider items that are unused, in an active storage, and expiring within [startOfToday, endExclusive)
+                guard !it.isUsed, activeStorages.contains(it.selectedStorage), d >= startOfToday, d < endExclusive else { return nil }
                 return (it, d)
             }
             guard let soonest = withDates.min(by: { $0.1 < $1.1 }) else { continue }
-            if soonest.1 <= cutoff { representatives.append(soonest) }
+            representatives.append(soonest)
         }
 
         let expiring = representatives.sorted { a, b in
@@ -244,10 +269,8 @@ struct HomeView: View {
             }
         }
 
-        let filtered = expiring.filter { item, _ in activeStorages.contains(item.selectedStorage) }
-
         return VStack(alignment: .leading, spacing: 10) {
-            if filtered.isEmpty {
+            if expiring.isEmpty {
                 GlassCard {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("All clear ✨")
@@ -258,7 +281,7 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                ForEach(filtered, id: \.0.id) { item, date in
+                ForEach(expiring, id: \.0.id) { item, date in
                     NavigationLink {
                         ItemDetailView(item: item)
                     } label: {
@@ -286,16 +309,43 @@ struct HomeView: View {
         }
     }
 
+    private func startOfWeek(for date: Date) -> Date {
+        var cal = Calendar.current
+        cal.firstWeekday = 2 // Monday
+        let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
+        return cal.date(from: comps) ?? cal.startOfDay(for: date)
+    }
+
+    private func isInCurrentWeek(_ date: Date) -> Bool {
+        let cal = Calendar.current
+        let start = startOfWeek(for: Date())
+        guard let end = cal.date(byAdding: .day, value: 7, to: start) else { return false }
+        return (start ... end).contains(date)
+    }
+
+    private func isInWeek(of ref: Date, date: Date) -> Bool {
+        let cal = Calendar.current
+        let start = startOfWeek(for: ref)
+        guard let end = cal.date(byAdding: .day, value: 7, to: start) else { return false }
+        return (start ... end).contains(date)
+    }
+
     private var expiringCountForRange: Int {
-        let cutoff = Date().addingTimeInterval(TimeInterval(daysAhead) * 24 * 3600)
+        let cal = Calendar.current
+        let startOfToday = cal.startOfDay(for: Date())
+        let endExclusive = cal.date(byAdding: .day, value: daysAhead + 1, to: startOfToday)
+            ?? startOfToday.addingTimeInterval(TimeInterval(daysAhead + 1) * 24 * 3600)
+
         let grouped = Dictionary(grouping: store.items, by: { $0.canonicalKey })
         var representatives: [(ReceiptItem, Date)] = []
+
         for (_, group) in grouped {
             let withDates: [(ReceiptItem, Date)] = group.compactMap { it in
-                guard let d = ISO8601Helper.formatter.date(from: it.effectiveExpiryISO8601) else { return nil }
+                guard let d = parseISO8601(it.effectiveExpiryISO8601) else { return nil }
+                guard !it.isUsed, activeStorages.contains(it.selectedStorage), d >= startOfToday, d < endExclusive else { return nil }
                 return (it, d)
             }
-            if let soonest = withDates.min(by: { $0.1 < $1.1 }), soonest.1 <= cutoff {
+            if let soonest = withDates.min(by: { $0.1 < $1.1 }) {
                 representatives.append(soonest)
             }
         }
@@ -303,18 +353,25 @@ struct HomeView: View {
     }
 
     private var potentialSavingsEstimate: Double {
-        let cutoff = Date().addingTimeInterval(TimeInterval(daysAhead) * 24 * 3600)
+        let cal = Calendar.current
+        let startOfToday = cal.startOfDay(for: Date())
+        let endExclusive = cal.date(byAdding: .day, value: daysAhead + 1, to: startOfToday)
+            ?? startOfToday.addingTimeInterval(TimeInterval(daysAhead + 1) * 24 * 3600)
+
         let grouped = Dictionary(grouping: store.items, by: { $0.canonicalKey })
         var representatives: [ReceiptItem] = []
+
         for (_, group) in grouped {
             let withDates: [(ReceiptItem, Date)] = group.compactMap { it in
-                guard let d = ISO8601Helper.formatter.date(from: it.effectiveExpiryISO8601) else { return nil }
+                guard let d = parseISO8601(it.effectiveExpiryISO8601) else { return nil }
+                guard !it.isUsed, activeStorages.contains(it.selectedStorage), d >= startOfToday, d < endExclusive else { return nil }
                 return (it, d)
             }
-            if let soonest = withDates.min(by: { $0.1 < $1.1 }), soonest.1 <= cutoff {
+            if let soonest = withDates.min(by: { $0.1 < $1.1 }) {
                 representatives.append(soonest.0)
             }
         }
+
         let currencySum: Double = representatives.reduce(0) { acc, item in
             if let total = item.totalPrice { return acc + total }
             if let ppu = item.pricePerUnit {
@@ -326,11 +383,7 @@ struct HomeView: View {
     }
 
     private func markUsed(_ item: ReceiptItem) {
-        guard let idx = store.items.firstIndex(of: item) else { return }
-        store.items.remove(at: idx)
-        store.showUndoSnackbar("Marked used “\(item.name)”") {
-            store.items.insert(item, at: min(idx, store.items.count))
-        }
+        store.toggleUsed(item)
     }
 }
 
@@ -421,12 +474,25 @@ struct ItemRow: View {
 
                 HStack {
                     Spacer()
-                    Button("Mark used") {
-                        onMarkUsed(item)
-                        Haptics.selection()
+
+                    if item.isUsed {
+                        Label("Used", systemImage: "checkmark")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.green.opacity(0.12), in: Capsule())
+                            .overlay(Capsule().stroke(.green.opacity(0.25), lineWidth: 1))
+                    } else {
+                        Button {
+                            onMarkUsed(item)
+                            Haptics.selection()
+                        } label: {
+                            Text("Mark used")
+                        }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.bordered)
                     }
-                    .font(.caption.weight(.semibold))
-                    .buttonStyle(.bordered)
                 }
                 .padding(.top, 6)
             }
@@ -447,7 +513,7 @@ struct ItemRow: View {
             )
             .presentationDetents([.height(220)])
         }
-        
+
         .sheet(isPresented: $showEditItemSheet) {
             EditReceiptItemSheet(item: item) { updated in
                 guard let idx = store.items.firstIndex(of: item) else { return }
@@ -533,19 +599,15 @@ struct ItemRow: View {
     }
 
     private func expiresText(_ d: Date) -> String {
-        let now = Date()
-        let secs = d.timeIntervalSince(now)
-        let days = Int(ceil(secs / (24*3600)))
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        let expiryStart = cal.startOfDay(for: d)
 
-        if secs < 0 {
-            return "Expires — expired"
-        }
-        if days <= 0 {
-            return "Expires — today"
-        }
-        if days == 1 {
-            return "Expires — in 1 day"
-        }
+        let days = cal.dateComponents([.day], from: todayStart, to: expiryStart).day ?? 0
+
+        if days < 0 { return "Expires — expired" }
+        if days == 0 { return "Expires — today" }
+        if days == 1 { return "Expires — tomorrow" }
         return "Expires — in \(days) days"
     }
 
@@ -602,48 +664,82 @@ struct ItemRow: View {
     }
 }
 
-struct StoragePickerSheet: View {
-    let title: String
-    let selected: StorageMode
-    let onSelect: (StorageMode) -> Void
+private struct WeeklyDeltaSheet: View {
+    enum Kind { case savings, loss }
+    let kind: Kind
+    let current: Double
+    let items: [ReceiptItem]
+
+    private var now: Date { Date() }
+
+    private func startOfWeek(_ d: Date) -> Date {
+        var cal = Calendar.current
+        cal.firstWeekday = 2
+        let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)
+        return cal.date(from: comps) ?? cal.startOfDay(for: d)
+    }
+
+    private var previousWeekValue: Double {
+        let cal = Calendar.current
+        let thisStart = startOfWeek(now)
+        guard let prevStart = cal.date(byAdding: .day, value: -7, to: thisStart),
+              let prevEnd = cal.date(byAdding: .day, value: 7, to: prevStart) else { return 0 }
+        let pairs = items.compactMap { item -> (ReceiptItem, Date)? in
+            guard let d = ISO8601Helper.formatter.date(from: item.effectiveExpiryISO8601) else { return nil }
+            return (item, d)
+        }
+        switch kind {
+        case .savings:
+            let potentials = pairs.filter { $0.1 >= prevStart && $0.1 < prevEnd && $0.1 >= prevStart }
+            return potentials.reduce(0) { acc, pair in
+                let it = pair.0
+                if let t = it.totalPrice { return acc + t }
+                if let ppu = it.pricePerUnit { return acc + ppu * Double(max(1, it.quantity)) }
+                return acc
+            }
+        case .loss:
+            let lost = pairs.filter { $0.1 >= prevStart && $0.1 < prevEnd && $0.1 < thisStart }
+            return lost.reduce(0) { acc, pair in
+                let it = pair.0
+                if let t = it.totalPrice { return acc + t }
+                if let ppu = it.pricePerUnit { return acc + ppu * Double(max(1, it.quantity)) }
+                return acc
+            }
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text(title)
-                .font(.headline)
-                .padding(.top, 8)
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(kind == .savings ? "Potential savings" : "Wasted")
+                    .font(.headline)
+                HStack(spacing: 12) {
+                    GlassCard { Text(current, format: .currency(code: Locale.current.currency?.identifier ?? "USD")).font(.title2.weight(.semibold)) }
+                    GlassCard { Text(previousWeekValue, format: .currency(code: Locale.current.currency?.identifier ?? "USD")).font(.title2.weight(.semibold)).foregroundStyle(.secondary) }
+                }
+                .frame(maxWidth: .infinity)
 
-            HStack(spacing: 12) {
-                storageButton(.pantry)
-                storageButton(.fridge)
-                storageButton(.freezer)
+                Chart {
+                    BarMark(x: .value("Week", "Prev"), y: .value("Amount", previousWeekValue))
+                        .foregroundStyle(kind == .loss ? .red.opacity(0.6) : .green.opacity(0.6))
+                    BarMark(x: .value("Week", "This"), y: .value("Amount", current))
+                        .foregroundStyle(kind == .loss ? .red : .green)
+                }
+                .frame(height: 160)
+                .chartXAxis(.hidden)
+                .chartYAxis {
+                    AxisMarks(position: .leading)
+                }
+
+                Spacer()
             }
-            .padding(.horizontal, 16)
-
-            Spacer()
+            .padding(16)
+            .navigationTitle("This vs last week")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { } } }
         }
-        .padding(.bottom, 10)
-    }
-
-    private func storageButton(_ mode: StorageMode) -> some View {
-        Button {
-            onSelect(mode)
-        } label: {
-            VStack(spacing: 8) {
-                Image(systemName: mode.iconName)
-                    .font(.system(size: 22, weight: .bold))
-                Text(mode.label)
-                    .font(.caption)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(selected == mode ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(selected == mode ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
+        .presentationDetents([.height(320), .medium])
     }
 }
+
+

@@ -19,6 +19,7 @@
 		5EF0D4D52F3880AF00ABECE5 /* FloatingPendingItemsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF0D4D42F3880AF00ABECE5 /* FloatingPendingItemsView.swift */; };
 		5EF0D4D92F38A3B000ABECE5 /* EditReceiptItemSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF0D4D82F38A3B000ABECE5 /* EditReceiptItemSheet.swift */; };
 		5EF0D4DF2F393A3600ABECE5 /* ImageEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF0D4DE2F393A3600ABECE5 /* ImageEditorView.swift */; };
+		5EF0D4E12F39BDC400ABECE5 /* StatTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF0D4E02F39BDC400ABECE5 /* StatTile.swift */; };
 		6081A9CD2917145D7ACE82D6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0AA51199C46A0AD5E7C60B6F /* Assets.xcassets */; };
 		6B2B31E099422881917E73C8 /* Preview Content in Resources */ = {isa = PBXBuildFile; fileRef = 81E02B69879C4DD000E1112A /* Preview Content */; };
 		6B425790711419385989F5F8 /* StillFreshApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8554F82B06B2A3A0E29F9328 /* StillFreshApp.swift */; };
@@ -47,6 +48,7 @@
 		5EF0D4D42F3880AF00ABECE5 /* FloatingPendingItemsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingPendingItemsView.swift; sourceTree = "<group>"; };
 		5EF0D4D82F38A3B000ABECE5 /* EditReceiptItemSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditReceiptItemSheet.swift; sourceTree = "<group>"; };
 		5EF0D4DE2F393A3600ABECE5 /* ImageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageEditorView.swift; sourceTree = "<group>"; };
+		5EF0D4E02F39BDC400ABECE5 /* StatTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatTile.swift; sourceTree = "<group>"; };
 		81E02B69879C4DD000E1112A /* Preview Content */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "Preview Content"; sourceTree = "<group>"; };
 		8554F82B06B2A3A0E29F9328 /* StillFreshApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StillFreshApp.swift; sourceTree = "<group>"; };
 		867C1309D6F6DC3D64741B0C /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
@@ -108,6 +110,7 @@
 				5EF0D4C82F380B2300ABECE5 /* Haptics.swift */,
 				5EF0D4D42F3880AF00ABECE5 /* FloatingPendingItemsView.swift */,
 				5EF0D4D82F38A3B000ABECE5 /* EditReceiptItemSheet.swift */,
+				5EF0D4E02F39BDC400ABECE5 /* StatTile.swift */,
 			);
 			path = StillFresh;
 			sourceTree = "<group>";
@@ -195,6 +198,7 @@
 				00CA6D56B24305013277AAC0 /* ProcessingOverlay.swift in Sources */,
 				5EF0D4D12F382D9D00ABECE5 /* WorkerModels.swift in Sources */,
 				5EF0D4D52F3880AF00ABECE5 /* FloatingPendingItemsView.swift in Sources */,
+				5EF0D4E12F39BDC400ABECE5 /* StatTile.swift in Sources */,
 				41A9FCA7FF2D0ADBE13F7A9C /* SnackbarView.swift in Sources */,
 				5E044E788E8DF926D6AA761C /* ScanView.swift in Sources */,
 				3F85EB587D0449852B690176 /* ImagePreprocessor.swift in Sources */,

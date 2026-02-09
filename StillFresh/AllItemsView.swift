@@ -1,13 +1,31 @@
 import SwiftUI
+import Charts
 
-/// Entry point for the tab:
-/// - Root shows two choices (Purchases / All items)
-/// - Also provides a global search. When searching, it shows matching item cells (same as before).
+// MARK: - Smart + bounded navigation for All tab
+
+private enum AllNav: Hashable {
+    case purchases
+    case allItems
+    case expiredItems
+    case weeklyProgress
+    case purchaseDay(Date)      // startOfDay date
+    case item(UUID)             // ReceiptItem.ID assumed UUID
+}
+
+extension Notification.Name {
+    static let sfPopToAllRoot = Notification.Name("sf_popToAllRoot")
+}
+
+// MARK: - Entry (All tab root)
+
 struct AllItemsView: View {
     @EnvironmentObject private var store: AppStore
 
     @State private var showSettings = false
     @State private var searchText: String = ""
+
+    // Typed stack lets us cap/replace navigation so it never grows endlessly
+    @State private var navStack: [AllNav] = []
 
     // 0 = System, 1 = Light, 2 = Dark
     @AppStorage("sf_appearance") private var appearanceRaw: Int = 0
@@ -19,108 +37,271 @@ struct AllItemsView: View {
         }
     }
 
-    var body: some View {
-        NavigationStack {
-            List {
-                if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Default root options
-                    Section {
-                        NavigationLink {
-                            PurchasesView()
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "cart")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .symbolRenderingMode(.hierarchical)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Purchases")
-                                        .font(.headline)
-                                    Text("Grouped by purchase date")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
+    private var trimmedQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
-                        NavigationLink {
-                            AllItemsListView(title: "All Items")
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "list.bullet")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .symbolRenderingMode(.hierarchical)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("All items")
-                                        .font(.headline)
-                                    Text("Browse everything")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    }
-                } else {
-                    // Global search results: show item cells exactly like before
-                    let results = globalSearchResults
-
-                    if results.isEmpty {
-                        ContentUnavailableView("No results", systemImage: "magnifyingglass")
-                            .listRowBackground(Color.clear)
-                    } else {
-                        Section {
-                            ForEach(results, id: \.id) { item in
-                                NavigationLink {
-                                    ItemDetailView(item: item)
-                                } label: {
-                                    AllItemRow(item: item)
-                                }
-                                .buttonStyle(.plain)
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                                .swipeActions(edge: .trailing) {
-                                    Button(role: .destructive) {
-                                        store.removeItem(item)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-            .navigationTitle("All Items")
-            .toolbar {
-                // ✅ Settings only on the main All tab root
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                }
-            }
-            .sheet(isPresented: $showSettings) { SettingsView() }
-            .searchable(text: $searchText, prompt: "Search all items")
-        }
-        .preferredColorScheme(preferredScheme)
+    private var isSearching: Bool {
+        !trimmedQuery.isEmpty
+    }
+    
+    private var expiredCount: Int {
+        store.items.filter { $0.urgency() == .expired }.count
     }
 
     private var globalSearchResults: [ReceiptItem] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let q = trimmedQuery.lowercased()
         guard !q.isEmpty else { return [] }
-
-        // Match same fields you already supported in AllItemsListView
         return store.items.filter {
             $0.name.lowercased().contains(q) ||
             $0.displayName.lowercased().contains(q)
         }
     }
+
+    var body: some View {
+        NavigationStack(path: $navStack) {
+            mainList
+                .navigationTitle("All Items")
+                .toolbar {
+                    // ✅ Settings only on the main All tab root
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                    }
+                }
+                .sheet(isPresented: $showSettings) { SettingsView() }
+                .searchable(text: $searchText, prompt: "Search all items")
+                .navigationDestination(for: AllNav.self) { dest in
+                    switch dest {
+                    case .purchases:
+                        PurchasesView(
+                            onSelectPurchaseDay: { day in
+                                setStack([.purchases, .purchaseDay(day)])
+                            }
+                        )
+                        .toolbar { backToAllToolbar }
+
+                    case .allItems:
+                        AllItemsListView(
+                            title: "All Items",
+                            filter: { $0.urgency() != .expired },
+                            onOpenItem: { id in
+                                setStack([.allItems, .item(id)])
+                            }
+                        )
+                        .toolbar { backToAllToolbar }
+                    
+                    case .expiredItems:
+                        AllItemsListView(
+                            title: "Expired",
+                            filter: { $0.urgency() == .expired },
+                            onOpenItem: { id in
+                                setStack([.expiredItems, .item(id)])
+                            }
+                        )
+                        .toolbar { backToAllToolbar }
+                    
+                    case .weeklyProgress:
+                        WeeklyProgressView()
+                            .toolbar { backToAllToolbar }
+
+                    case .purchaseDay(let day):
+                        AllItemsListView(
+                            title: purchaseTitle(for: day),
+                            filter: { item in Calendar.current.isDate(item.purchasedAt, inSameDayAs: day) },
+                            onOpenItem: { id in
+                                setStack([.purchases, .purchaseDay(day), .item(id)])
+                            }
+                        )
+                        .toolbar { backToAllToolbar }
+
+                    case .item(let id):
+                        if let item = store.items.first(where: { $0.id == id }) {
+                            ItemDetailView(item: item)
+                                .toolbar { backToAllToolbar }
+                        } else {
+                            ContentUnavailableView("Item not found", systemImage: "exclamationmark.triangle")
+                                .toolbar { backToAllToolbar }
+                        }
+                    }
+                }
+        }
+        .preferredColorScheme(preferredScheme)
+        .onReceive(NotificationCenter.default.publisher(for: .sfPopToAllRoot)) { _ in
+            navStack.removeAll()
+            searchText = ""
+        }
+    }
+
+    // MARK: - Smart navigation helpers
+
+    private func setStack(_ newStack: [AllNav]) {
+        navStack = newStack
+    }
+
+    private func purchaseTitle(for day: Date) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f.string(from: day)
+    }
+
+    @ToolbarContentBuilder
+    private var backToAllToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                navStack.removeAll()
+                searchText = ""
+                Haptics.selection()
+            } label: {
+                Image(systemName: "arrow.uturn.backward.circle")
+            }
+            .accessibilityLabel("Back to All Items")
+        }
+    }
+
+    // MARK: - Root list
+
+    private var mainList: some View {
+        List {
+            if isSearching {
+                searchResultsSection
+            } else {
+                rootOptionsSection
+            }
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    @ViewBuilder
+    private var rootOptionsSection: some View {
+        Section {
+            // ✅ Entire row tappable
+            Button {
+                setStack([.purchases])
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "cart")
+                        .font(.system(size: 18, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Purchases").font(.headline)
+                        Text("Grouped by purchase date")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // ✅ Entire row tappable
+            Button {
+                setStack([.allItems])
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 18, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("All items").font(.headline)
+                        Text("Browse everything")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // ✅ Entire row tappable
+            Button {
+                setStack([.expiredItems])
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "xmark.octagon")
+                        .font(.system(size: 18, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Expired items").font(.headline)
+                        Text("Already wasted this week")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    if expiredCount > 0 {
+                        Text("\(expiredCount)")
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.red.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.red)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // ✅ Entire row tappable
+            Button {
+                setStack([.weeklyProgress])
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.system(size: 18, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Weekly progress").font(.headline)
+                        Text("Saved vs lost over time")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var searchResultsSection: some View {
+        let results = globalSearchResults
+        if results.isEmpty {
+            ContentUnavailableView("No results", systemImage: "magnifyingglass")
+                .listRowBackground(Color.clear)
+        } else {
+            Section {
+                ForEach(results, id: \.id) { item in
+                    Button {
+                        setStack([.item(item.id)])
+                    } label: {
+                        AllItemRow(item: item)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { store.removeItem(item) } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-// MARK: - Purchases (grouped by purchase day)
+// MARK: - Purchases list
 
-struct PurchasesView: View {
+private struct PurchasesView: View {
     @EnvironmentObject private var store: AppStore
+    let onSelectPurchaseDay: (Date) -> Void
 
     var body: some View {
         List {
@@ -129,8 +310,8 @@ struct PurchasesView: View {
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(purchases) { purchase in
-                    NavigationLink {
-                        PurchaseItemsView(day: purchase.day)
+                    Button {
+                        onSelectPurchaseDay(purchase.day)
                     } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Purchased on \(dateLabel(purchase.day))")
@@ -150,7 +331,10 @@ struct PurchasesView: View {
                             }
                         }
                         .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading) // ✅ full row width
+                        .contentShape(Rectangle())                        // ✅ full row tappable
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -158,7 +342,6 @@ struct PurchasesView: View {
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .navigationTitle("Purchases")
-        // ✅ No settings button here
     }
 
     private struct PurchaseGroup: Identifiable {
@@ -168,11 +351,9 @@ struct PurchasesView: View {
         let totalQuantity: Int
     }
 
-    /// Purchases sorted in descending order by date.
     private var purchases: [PurchaseGroup] {
         let cal = Calendar.current
         let grouped = Dictionary(grouping: store.items) { cal.startOfDay(for: $0.purchasedAt) }
-
         return grouped
             .map { (day, items) in
                 PurchaseGroup(
@@ -193,40 +374,17 @@ struct PurchasesView: View {
     }
 }
 
-/// Items for a specific purchase day, with the exact same UX as All Items.
-struct PurchaseItemsView: View {
-    let day: Date
+// MARK: - Reused list UI (All items + Purchase day items)
 
-    var body: some View {
-        AllItemsListView(title: title, filter: { item in
-            Calendar.current.isDate(item.purchasedAt, inSameDayAs: day)
-        })
-    }
-
-    private var title: String {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f.string(from: day)
-    }
-}
-
-/// The existing list UI (search / sort / edit-select-delete), reused for both:
-/// - All Items
-/// - A single Purchase's items
 struct AllItemsListView: View {
     @EnvironmentObject private var store: AppStore
 
     let title: String
     let filter: ((ReceiptItem) -> Bool)?
-
-    init(title: String, filter: ((ReceiptItem) -> Bool)? = nil) {
-        self.title = title
-        self.filter = filter
-    }
+    let onOpenItem: (UUID) -> Void
 
     @State private var editMode: EditMode = .inactive
-    @State private var selection = Set<ReceiptItem.ID>()
+    @State private var selection = Set<UUID>()
     @State private var searchText: String = ""
 
     enum SortOption: String, CaseIterable, Identifiable {
@@ -256,8 +414,6 @@ struct AllItemsListView: View {
         .toolbar { toolbarContent }
         .searchable(text: $searchText)
         .environment(\.editMode, $editMode)
-
-        // ✅ Sticky bottom bar that pushes scroll content above it
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if isEditing {
                 MinimalSelectionBar(
@@ -275,7 +431,6 @@ struct AllItemsListView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-
         .onAppear { selection.removeAll() }
         .onChange(of: editMode) { _, newMode in
             if !newMode.isEditing { selection.removeAll() }
@@ -286,10 +441,7 @@ struct AllItemsListView: View {
         }
         .animation(.spring(response: 0.25, dampingFraction: 0.9), value: isEditing)
         .animation(.spring(response: 0.25, dampingFraction: 0.9), value: selection.count)
-        // ✅ No settings button here
     }
-
-    // MARK: - Toolbar
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
@@ -321,8 +473,6 @@ struct AllItemsListView: View {
         }
     }
 
-    // MARK: - Rows
-
     @ViewBuilder
     private func row(for item: ReceiptItem) -> some View {
         if isEditing {
@@ -332,8 +482,8 @@ struct AllItemsListView: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
         } else {
-            NavigationLink {
-                ItemDetailView(item: item)
+            Button {
+                onOpenItem(item.id)
             } label: {
                 AllItemRow(item: item)
             }
@@ -347,8 +497,6 @@ struct AllItemsListView: View {
             }
         }
     }
-
-    // MARK: - Actions
 
     private func deleteItems(at offsets: IndexSet) {
         let items = offsets.map { displayedItems[$0] }
@@ -364,14 +512,9 @@ struct AllItemsListView: View {
         Haptics.notify(.success)
     }
 
-    // MARK: - Data
-
     private var displayedItems: [ReceiptItem] {
         var items = store.items
-
-        if let filter {
-            items = items.filter(filter)
-        }
+        if let filter { items = items.filter(filter) }
 
         if !searchText.isEmpty {
             let q = searchText.lowercased()
@@ -401,11 +544,9 @@ struct AllItemsListView: View {
     }
 }
 
-//
-// MARK: - Minimal sticky bar (bottom, iOS-y)
-//
+// MARK: - Minimal sticky bar
 
-private struct MinimalSelectionBar: View {
+struct MinimalSelectionBar: View {
     let selectedCount: Int
     let onClear: () -> Void
     let onDelete: () -> Void
@@ -456,9 +597,7 @@ private struct MinimalSelectionBar: View {
     }
 }
 
-//
-// MARK: - Row (matches HomeView ItemRow visuals + quantity + mark used)
-//
+// MARK: - Item row (context menu matches Home tab)
 
 private struct AllItemRow: View {
     @EnvironmentObject private var store: AppStore
@@ -467,6 +606,12 @@ private struct AllItemRow: View {
     @State private var showEditQuantity = false
     @State private var editedQuantity: Int = 1
 
+    @State private var showEditDate = false
+    @State private var editedDate = Date()
+
+    @State private var showEditItemSheet = false
+    @State private var showStoragePicker = false
+
     var body: some View {
         GlassCard {
             VStack(spacing: 0) {
@@ -474,10 +619,7 @@ private struct AllItemRow: View {
                     ZStack(alignment: .center) {
                         Circle()
                             .fill(storageColor.opacity(0.18))
-                            .overlay(
-                                Circle()
-                                    .stroke(storageColor, lineWidth: 1)
-                            )
+                            .overlay(Circle().stroke(storageColor, lineWidth: 1))
 
                         Text(item.iconEmoji)
                             .font(.system(size: 32))
@@ -510,6 +652,7 @@ private struct AllItemRow: View {
 
                     Spacer()
 
+                    // Keep existing quantity edit UX (badge tap)
                     Button {
                         editedQuantity = max(1, item.quantity)
                         showEditQuantity = true
@@ -537,17 +680,81 @@ private struct AllItemRow: View {
 
                 HStack {
                     Spacer()
-                    Button("Mark used") {
-                        store.removeItem(item)
-                        Haptics.selection()
+
+                    if item.isUsed {
+                        Label("Used", systemImage: "checkmark")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.green.opacity(0.12), in: Capsule())
+                            .overlay(Capsule().stroke(.green.opacity(0.25), lineWidth: 1))
+                    } else {
+                        Button("Mark used") {
+                            store.toggleUsed(item)   // ✅ correct action
+                            Haptics.selection()
+                        }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.bordered)
                     }
-                    .font(.caption.weight(.semibold))
-                    .buttonStyle(.bordered)
                 }
                 .padding(.top, 6)
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        // ✅ EXACT context menu options like Home tab
+        .contextMenu {
+            Button { showEditItemSheet = true } label: { Label("Edit Item", systemImage: "pencil") }
+            Button { showStoragePicker = true } label: { Label("Change Storage", systemImage: "tray.and.arrow.down") }
+            Button { primeEditedDate(); showEditDate = true } label: { Label("Edit Expiration", systemImage: "calendar.badge.clock") }
+            Divider()
+            Button(role: .destructive) {
+                store.removeItem(item)
+                Haptics.notify(.warning)
+            } label: { Label("Delete", systemImage: "trash") }
+        }
+        // Storage picker sheet (same contract as HomeView)
+        .sheet(isPresented: $showStoragePicker) {
+            StoragePickerSheet(
+                title: "Storage",
+                selected: item.selectedStorage,
+                onSelect: { updateStorage($0); showStoragePicker = false }
+            )
+            .presentationDetents([.medium])
+        }
+        // Edit item sheet (same contract as HomeView)
+        .sheet(isPresented: $showEditItemSheet) {
+            EditReceiptItemSheet(item: item) { updated in
+                guard let idx = store.items.firstIndex(of: item) else { return }
+                store.items[idx] = updated
+                Haptics.notify(.success)
+            }
+            .presentationDetents([.medium, .large])
+        }
+        // Edit expiration sheet (same contract as HomeView)
+        .sheet(isPresented: $showEditDate) {
+            NavigationStack {
+                VStack(spacing: 18) {
+                    DatePicker("Expiration", selection: $editedDate, displayedComponents: [.date])
+                        .datePickerStyle(.graphical)
+                    Text("This overrides AI for this item.")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(16)
+                .navigationTitle("Edit Date")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) { Button("Cancel") { showEditDate = false } }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Save") { saveOverride(); showEditDate = false }
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+        // Quantity edit sheet (kept as-is)
         .sheet(isPresented: $showEditQuantity) {
             NavigationStack {
                 VStack(alignment: .leading, spacing: 16) {
@@ -621,9 +828,32 @@ private struct AllItemRow: View {
         return fmt.string(from: d)
     }
 
-    private func expiryDate() -> Date? {
-        ISO8601Helper.formatter.date(from: item.effectiveExpiryISO8601)
+    private func updateStorage(_ mode: StorageMode) {
+        guard let idx = store.items.firstIndex(of: item) else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+            store.items[idx].selectedStorage = mode
+        }
+        Haptics.selection()
     }
+
+    private func primeEditedDate() {
+        let current = ISO8601Helper.formatter.date(from: item.effectiveExpiryISO8601) ?? Date()
+        editedDate = current
+    }
+
+    private func saveOverride() {
+        guard let idx = store.items.firstIndex(of: item) else { return }
+        store.items[idx].userOverrideExpiryISO8601 = ISO8601Helper.formatter.string(from: editedDate)
+        Haptics.notify(.success)
+    }
+
+    private func saveQuantity() {
+        guard let idx = store.items.firstIndex(of: item) else { return }
+        store.items[idx].quantity = max(1, editedQuantity)
+        Haptics.notify(.success)
+    }
+
+    private func expiryDate() -> Date? { ISO8601Helper.formatter.date(from: item.effectiveExpiryISO8601) }
 
     private func progressFraction() -> CGFloat {
         guard let end = expiryDate() else { return 0 }
@@ -642,17 +872,144 @@ private struct AllItemRow: View {
         case .fresh: return .green
         }
     }
+}
 
-    private func saveQuantity() {
-        guard let idx = store.items.firstIndex(of: item) else { return }
-        store.items[idx].quantity = max(1, editedQuantity)
-        Haptics.notify(.success)
+// MARK: - Weekly Progress View
+
+struct WeeklyProgressView: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var selectedWeekLabel: String? = nil
+
+    private let calendar = Calendar(identifier: .iso8601)
+
+    private func weekLabel(for date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f.string(from: date)
+    }
+
+
+    private struct BarPoint: Identifiable, Equatable {
+        let id = UUID()
+        let weekStart: Date
+        let kind: String // "Saved" or "Wasted"
+        let value: Double
+    }
+
+    private var buckets: [AppStore.WeekBucket] {
+        store.weeklyBuckets(weeksBack: 8)
+    }
+
+    private var barPoints: [BarPoint] {
+        buckets.flatMap { b in
+            [
+                BarPoint(weekStart: b.weekStart, kind: "Saved", value: b.saved),
+                BarPoint(weekStart: b.weekStart, kind: "Wasted", value: b.wasted)
+            ]
+        }
+    }
+
+    private var currencyFormatter: NumberFormatter {
+        let nf = NumberFormatter()
+        nf.numberStyle = .currency
+        nf.maximumFractionDigits = 2
+        nf.currencySymbol = Locale.current.currencySymbol ?? "$"
+        return nf
+    }
+
+    private func formattedCurrency(_ value: Double) -> String {
+        currencyFormatter.string(from: NSNumber(value: value)) ?? ""
+    }
+
+    var body: some View {
+        let current = store.currentWeekBucket()
+        List {
+            Section {
+                HStack(spacing: 12) {
+                    StatTile(
+                        mainTitle: "Potential savings",
+                        subtitle: "This week",
+                        amount: formattedCurrency(current.potential),
+                        color: .green,
+                        fixedHeight: 70
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    StatTile(
+                        mainTitle: "Wasted",
+                        subtitle: "This week",
+                        amount: formattedCurrency(current.wasted),
+                        color: .red,
+                        fixedHeight: 70
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .padding(.top, 30)
+                .padding(.bottom, 12)
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+
+            Section("Weekly Progress") {
+                Chart(barPoints) { point in
+                    BarMark(
+                        x: .value("Week", weekLabel(for: point.weekStart)),
+                        y: .value("Amount", point.value)
+                    )
+                    .position(by: .value("Kind", point.kind))
+                    .foregroundStyle(point.kind == "Saved" ? .green.opacity(0.65) : .red.opacity(0.75))
+                    .cornerRadius(3)
+                }
+                .frame(height: 220)
+                .chartYAxis {
+                    AxisMarks(position: .leading)
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 8)) { value in
+                        AxisGridLine()
+                        AxisTick()
+                        AxisValueLabel(centered: true)
+                    }
+                }
+                .chartXSelection(value: $selectedWeekLabel)
+                .animation(.spring(response: 0.45, dampingFraction: 0.85), value: buckets)
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
+
+                if let selected = selectedWeekLabel, let b = buckets.first(where: { weekLabel(for: $0.weekStart) == selected }) {
+                    GlassCard {
+                        HStack(spacing: 12) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                                .font(.system(size: 22))
+                                .foregroundStyle(.primary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Selected: \(selected)")
+                                    .font(.headline)
+                                HStack(spacing: 12) {
+                                    Label(formattedCurrency(b.saved), systemImage: "checkmark.seal.fill")
+                                        .foregroundStyle(.green)
+                                    Label(formattedCurrency(b.wasted), systemImage: "xmark.octagon.fill")
+                                        .foregroundStyle(.red)
+                                }
+                                .font(.subheadline.weight(.semibold))
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    .listRowBackground(Color.clear)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .navigationTitle("Weekly Progress")
     }
 }
 
-//
 // MARK: - Settings
-//
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -674,6 +1031,69 @@ struct SettingsView: View {
                         .fontWeight(.semibold)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Storage Picker Sheet (inline replacement)
+
+struct StoragePickerSheet: View {
+    let title: String
+    let selected: StorageMode
+    let onSelect: (StorageMode) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(StorageMode.allCases, id: \.self) { mode in
+                        Button {
+                            onSelect(mode)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: mode.iconName)
+                                    .foregroundStyle(color(for: mode))
+                                Text(label(for: mode))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if mode == selected {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func label(for mode: StorageMode) -> String {
+        switch mode {
+        case .pantry: return "Pantry"
+        case .fridge: return "Fridge"
+        case .freezer: return "Freezer"
+        }
+    }
+
+    private func color(for mode: StorageMode) -> Color {
+        switch mode {
+        case .pantry: return .brown
+        case .fridge: return .blue
+        case .freezer: return .indigo
         }
     }
 }

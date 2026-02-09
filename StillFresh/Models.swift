@@ -54,6 +54,15 @@ struct ReceiptItem: Identifiable, Codable, Equatable {
     var pricePerUnit: Double?
     var totalPrice: Double?
 
+    /// User marks item as used (saved) rather than wasted.
+    /// Kept on the item so history + weekly trends stay correct.
+    var isUsed: Bool = false
+    var usedAt: Date? = nil
+
+    /// Stable per-unit price derived once from `totalPrice` when
+    /// `pricePerUnit` is missing. This lets quantity edits update totals.
+    var unitPriceFallback: Double? = nil
+
     init(id: UUID = UUID(),
          name: String,
          quantity: Int = 1,
@@ -65,7 +74,10 @@ struct ReceiptItem: Identifiable, Codable, Equatable {
          perUnitAmount: Double? = nil,
          perUnitUnit: String? = nil,
          pricePerUnit: Double? = nil,
-         totalPrice: Double? = nil) {
+         totalPrice: Double? = nil,
+         isUsed: Bool = false,
+         usedAt: Date? = nil,
+         unitPriceFallback: Double? = nil) {
         self.id = id
         self.name = name
         self.quantity = quantity
@@ -78,10 +90,33 @@ struct ReceiptItem: Identifiable, Codable, Equatable {
         self.perUnitUnit = perUnitUnit
         self.pricePerUnit = pricePerUnit
         self.totalPrice = totalPrice
+
+        self.isUsed = isUsed
+        self.usedAt = usedAt
+
+        if let provided = unitPriceFallback {
+            self.unitPriceFallback = provided
+        } else if self.pricePerUnit == nil, let total = totalPrice {
+            self.unitPriceFallback = total / Double(max(1, quantity))
+        } else {
+            self.unitPriceFallback = nil
+        }
     }
 
     var effectiveExpiryISO8601: String {
-        userOverrideExpiryISO8601 ?? (expiryByStorageISO8601[selectedStorage] ?? expiryByStorageISO8601[defaultStorage] ?? "")
+        userOverrideExpiryISO8601
+        ?? (expiryByStorageISO8601[selectedStorage]
+            ?? expiryByStorageISO8601[defaultStorage]
+            ?? "")
+    }
+
+    /// Best-effort total cost that responds to quantity edits.
+    var effectiveTotalCost: Double {
+        let q = Double(max(1, quantity))
+        if let ppu = pricePerUnit { return ppu * q }
+        if let unit = unitPriceFallback { return unit * q }
+        if let total = totalPrice { return total }
+        return 0
     }
 }
 
@@ -107,6 +142,7 @@ struct AIReceiptResponse: Codable {
         let quantity: Int?
         let default_storage: String
         let expiry: Expiry
+
         struct Expiry: Codable {
             let pantry: String
             let fridge: String
@@ -117,7 +153,10 @@ struct AIReceiptResponse: Codable {
     let receipt_id: String?
     let items: [Item]
 }
+
+// MARK: - ReceiptItem UI + business helpers
 extension ReceiptItem {
+
     // Simple emoji based on common food keywords
     var iconEmoji: String {
         let n = name.lowercased()
@@ -137,14 +176,67 @@ extension ReceiptItem {
         return "🛒"
     }
 
-    // Determine urgency bucket relative to now
     enum Urgency: String { case expired, soon, fresh }
 
+    /// Robust ISO8601 parsing (with/without fractional seconds).
+    private func parseISO8601(_ s: String) -> Date? {
+        if let d = ISO8601Helper.formatter.date(from: s) { return d }
+
+        let f1 = ISO8601DateFormatter()
+        f1.formatOptions = [.withInternetDateTime]
+        if let d = f1.date(from: s) { return d }
+
+        let f2 = ISO8601DateFormatter()
+        f2.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f2.date(from: s)
+    }
+
+    /// Interprets `effectiveExpiryISO8601` as a calendar date and returns the start of that day
+    /// in the device's local timezone (prevents UTC shifting the date).
+    func effectiveExpiryDayStartLocal() -> Date? {
+        guard let abs = parseISO8601(effectiveExpiryISO8601) else { return nil }
+        return ReceiptItem.localDayStartPreservingUTCDate(abs)
+    }
+
+    /// Converts an absolute Date into "the same YYYY-MM-DD" in local time.
+    /// We take the UTC year/month/day from the Date, then construct a local-date at noon (DST-safe),
+    /// then return start-of-day for that local date.
+    private static func localDayStartPreservingUTCDate(_ absolute: Date) -> Date? {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        let ymd = utc.dateComponents([.year, .month, .day], from: absolute)
+
+        var local = Calendar.current
+        local.timeZone = .current
+
+        var noon = DateComponents()
+        noon.year = ymd.year
+        noon.month = ymd.month
+        noon.day = ymd.day
+        noon.hour = 12 // noon avoids DST edge cases
+
+        guard let localNoon = local.date(from: noon) else { return nil }
+        return local.startOfDay(for: localNoon)
+    }
+
+    /// Determine urgency bucket relative to now (calendar-day safe).
+    /// ✅ "Today" is NOT expired.
     func urgency(relativeTo now: Date = Date()) -> Urgency {
-        guard let d = ISO8601Helper.formatter.date(from: effectiveExpiryISO8601) else { return .fresh }
-        let delta = d.timeIntervalSince(now)
-        if delta < 0 { return .expired }
-        if delta <= 48 * 3600 { return .soon } // within 48h
+        guard let expiryDayStart = effectiveExpiryDayStartLocal() else { return .fresh }
+
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: now)
+
+        if expiryDayStart < todayStart { return .expired }
+
+        // treat expiry as end-of-day for "soon"
+        let endExclusive = cal.date(byAdding: .day, value: 1, to: expiryDayStart)
+            ?? expiryDayStart.addingTimeInterval(24 * 3600)
+
+        let remaining = endExclusive.timeIntervalSince(now)
+        if remaining <= 48 * 3600 { return .soon }
+
         return .fresh
     }
 
@@ -152,20 +244,18 @@ extension ReceiptItem {
 
     var displayName: String {
         if let amt = perUnitAmount, let unit = perUnitUnit, amt > 0 {
-            // Format amount without trailing .0 if possible
             let amtString: String = amt == floor(amt) ? String(Int(amt)) : String(amt)
             return "\(name) (\(amtString) \(unit))"
         }
         return name
     }
 
-/// Normalized key used to group the same item across multiple purchases.
-var canonicalKey: String {
-    name
-        .lowercased()
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-	        // Swift string literals treat "\s" as an escape; use a raw string so the regex sees \s.
-	        .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-}
+    /// Normalized key used to group the same item across multiple purchases.
+    var canonicalKey: String {
+        name
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+    }
 }
 

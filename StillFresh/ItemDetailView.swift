@@ -10,6 +10,25 @@ struct ItemDetailView: View {
             .sorted { $0.purchasedAt > $1.purchasedAt }
     }
 
+    private var purchaseGroupsForThisItem: [PurchaseGroupSummary] {
+        let cal = Calendar.current
+        let days = Set(history.map { cal.startOfDay(for: $0.purchasedAt) })
+
+        return days
+            .map { day in
+                let groupItems = store.items.filter { cal.isDate($0.purchasedAt, inSameDayAs: day) }
+                let thisItemInGroup = groupItems.filter { $0.canonicalKey == item.canonicalKey }
+                return PurchaseGroupSummary(
+                    day: day,
+                    totalItems: groupItems.count,
+                    totalQuantity: groupItems.reduce(0) { $0 + max(1, $1.quantity) },
+                    thisItemCount: thisItemInGroup.count,
+                    thisItemQuantity: thisItemInGroup.reduce(0) { $0 + max(1, $1.quantity) }
+                )
+            }
+            .sorted { $0.day > $1.day }
+    }
+
     var body: some View {
         List {
             Section {
@@ -24,12 +43,8 @@ struct ItemDetailView: View {
 
             Section("This purchase") {
                 detailRow("Quantity", "\(item.quantity)")
-                if let ppu = item.pricePerUnit {
-                    detailRow("Price / unit", currency(ppu))
-                }
-                if let total = item.totalPrice {
-                    detailRow("Total price", currency(total))
-                }
+                if let ppu = item.pricePerUnit { detailRow("Price / unit", currency(ppu)) }
+                if let total = item.totalPrice { detailRow("Total price", currency(total)) }
                 detailRow("Bought on", formatDate(item.purchasedAt))
                 detailRow("Storage", storageLabel(item.selectedStorage))
                 detailRow("Expires", formatDate(expiryDate(for: item)))
@@ -46,37 +61,82 @@ struct ItemDetailView: View {
                 .padding(.vertical, 2)
             }
 
-            if history.count > 1 {
-                Section("Purchase history") {
-                    ForEach(history) { h in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(formatDate(h.purchasedAt))
+            // ✅ Purchase history section (NO PurchaseItemsView usage)
+            Section("Purchase history") {
+                if purchaseGroupsForThisItem.isEmpty {
+                    Text("No purchase history found.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(purchaseGroupsForThisItem) { g in
+                        NavigationLink {
+                            // Show all items from the purchase group (same-day)
+                            AllItemsListView(
+                                title: "Purchase • \(formatDate(g.day))",
+                                filter: { it in Calendar.current.isDate(it.purchasedAt, inSameDayAs: g.day) },
+                                onOpenItem: { _ in
+                                    // Smart nav is handled by AllItemsView’s bounded stack.
+                                    // If user wants to open another item, they can from there.
+                                }
+                            )
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Purchased on \(formatDate(g.day))")
                                     .font(.subheadline.weight(.semibold))
-                                Spacer()
-                                Text("×\(h.quantity)")
-                                    .font(.caption.weight(.bold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(.secondary.opacity(0.15), in: Capsule())
+
+                                HStack(spacing: 10) {
+                                    Text("Purchase group: \(g.totalItems) items")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    if g.totalQuantity > g.totalItems {
+                                        Text("• Qty \(g.totalQuantity)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
+                                HStack(spacing: 10) {
+                                    Text("This item in group: \(g.thisItemCount)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    if g.thisItemQuantity > g.thisItemCount {
+                                        Text("• Qty \(g.thisItemQuantity)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                             }
-
-                            Text("Expires: \(formatDate(expiryDate(for: h)))")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-
-                            Text("Storage: \(storageLabel(h.selectedStorage))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
                 }
             }
         }
         .navigationTitle(item.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // ✅ Back to All root (works via AllItemsView listener)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    NotificationCenter.default.post(name: .sfPopToAllRoot, object: nil)
+                    Haptics.selection()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                }
+                .accessibilityLabel("Back to All Items")
+            }
+        }
         .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 12) }
+    }
+
+    private struct PurchaseGroupSummary: Identifiable {
+        let id = UUID()
+        let day: Date
+        let totalItems: Int
+        let totalQuantity: Int
+        let thisItemCount: Int
+        let thisItemQuantity: Int
     }
 
     private func detailRow(_ title: String, _ value: String) -> some View {
@@ -113,9 +173,7 @@ struct ItemDetailView: View {
         return ISO8601Helper.formatter.date(from: iso)
     }
 
-    private func storageLabel(_ mode: StorageMode) -> String {
-        mode.label
-    }
+    private func storageLabel(_ mode: StorageMode) -> String { mode.label }
 
     private func currency(_ value: Double) -> String {
         let fmt = NumberFormatter()
@@ -137,15 +195,3 @@ struct ItemDetailView: View {
     }
 }
 
-#Preview {
-    NavigationStack {
-        ItemDetailView(item: ReceiptItem(
-            name: "Strawberries",
-            quantity: 1,
-            purchasedAt: .now,
-            defaultStorage: .fridge,
-            expiryByStorageISO8601: [.fridge: ISO8601Helper.formatter.string(from: .now.addingTimeInterval(86400))]
-        ))
-        .environmentObject(AppStore())
-    }
-}
