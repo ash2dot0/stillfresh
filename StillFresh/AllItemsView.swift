@@ -45,7 +45,7 @@ struct AllItemsView: View {
     private var isSearching: Bool {
         !trimmedQuery.isEmpty
     }
-    
+
     private var expiredCount: Int {
         store.items.filter { $0.urgency() == .expired && !$0.isUsed }.count
     }
@@ -95,7 +95,7 @@ struct AllItemsView: View {
                                 setStack([.allItems, .item(id)])
                             }
                         )
-                    
+
                     case .usedItems:
                         AllItemsListView(
                             title: "Used Items",
@@ -104,7 +104,7 @@ struct AllItemsView: View {
                                 setStack([.usedItems, .item(id)])
                             }
                         )
-                    
+
                     case .expiredItems:
                         AllItemsListView(
                             title: "Expired",
@@ -113,7 +113,7 @@ struct AllItemsView: View {
                                 setStack([.expiredItems, .item(id)])
                             }
                         )
-                    
+
                     case .weeklyProgress:
                         WeeklyProgressView()
                             .toolbar { backToAllToolbar }
@@ -224,6 +224,7 @@ struct AllItemsView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 0)
                     if nonExpiredCount > 0 {
                         Text("\(nonExpiredCount)")
                             .font(.subheadline.weight(.bold))
@@ -232,8 +233,9 @@ struct AllItemsView: View {
                             .background(Color.blue.opacity(0.15), in: Capsule())
                             .foregroundStyle(.blue)
                     }
-                    Spacer(minLength: 0)
                 }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -251,6 +253,7 @@ struct AllItemsView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 0)
                     if usedCount > 0 {
                         Text("\(usedCount)")
                             .font(.subheadline.weight(.bold))
@@ -259,8 +262,9 @@ struct AllItemsView: View {
                             .background(Color.green.opacity(0.15), in: Capsule())
                             .foregroundStyle(.green)
                     }
-                    Spacer(minLength: 0)
                 }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -278,6 +282,7 @@ struct AllItemsView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 0)
                     if expiredCount > 0 {
                         Text("\(expiredCount)")
                             .font(.subheadline.weight(.bold))
@@ -286,7 +291,6 @@ struct AllItemsView: View {
                             .background(Color.red.opacity(0.15), in: Capsule())
                             .foregroundStyle(.red)
                     }
-                    Spacer(minLength: 0)
                 }
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
@@ -379,8 +383,8 @@ private struct PurchasesView: View {
                             }
                         }
                         .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading) // ✅ full row width
-                        .contentShape(Rectangle())                        // ✅ full row tappable
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
@@ -707,7 +711,6 @@ private struct AllItemRow: View {
 
                     Spacer()
 
-                    // Keep existing quantity edit UX (badge tap)
                     Button {
                         editedQuantity = max(1, item.quantity)
                         showEditQuantity = true
@@ -745,7 +748,7 @@ private struct AllItemRow: View {
                             .overlay(Capsule().stroke(.green.opacity(0.25), lineWidth: 1))
                     } else {
                         Button("Mark used") {
-                            store.toggleUsed(item)   // ✅ correct action
+                            store.toggleUsed(item)
                             Haptics.selection()
                         }
                         .font(.caption.weight(.semibold))
@@ -758,7 +761,6 @@ private struct AllItemRow: View {
         }
         .glassCardStyle(GlassCardStyle(padding: 6))
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        // ✅ EXACT context menu options like Home tab
         .contextMenu {
             Button { showEditItemSheet = true } label: { Label("Edit Item", systemImage: "pencil") }
             Button { showStoragePicker = true } label: { Label("Change Storage", systemImage: "tray.and.arrow.down") }
@@ -769,7 +771,6 @@ private struct AllItemRow: View {
                 Haptics.notify(.warning)
             } label: { Label("Delete", systemImage: "trash") }
         }
-        // Storage picker sheet (same contract as HomeView)
         .sheet(isPresented: $showStoragePicker) {
             StoragePickerSheet(
                 title: "Storage",
@@ -778,7 +779,6 @@ private struct AllItemRow: View {
             )
             .presentationDetents([.medium])
         }
-        // Edit item sheet (same contract as HomeView)
         .sheet(isPresented: $showEditItemSheet) {
             EditReceiptItemSheet(item: item) { updated in
                 guard let idx = store.items.firstIndex(of: item) else { return }
@@ -787,7 +787,6 @@ private struct AllItemRow: View {
             }
             .presentationDetents([.medium, .large])
         }
-        // Edit expiration sheet (same contract as HomeView)
         .sheet(isPresented: $showEditDate) {
             NavigationStack {
                 VStack(spacing: 18) {
@@ -810,7 +809,6 @@ private struct AllItemRow: View {
             }
             .presentationDetents([.medium, .large])
         }
-        // Quantity edit sheet (kept as-is)
         .sheet(isPresented: $showEditQuantity) {
             NavigationStack {
                 VStack(alignment: .leading, spacing: 16) {
@@ -937,17 +935,34 @@ private struct AllItemRow: View {
         if days == 0 { return .red }        // expires today
         if days <= 2 { return .red }
         else if days <= 7 { return .yellow }
-        else { return .green }                  
+        else { return .green }
     }
 }
 
-// MARK: - Weekly Progress View
+// MARK: - Weekly Progress View (UPDATED per your spec)
 
 struct WeeklyProgressView: View {
     @EnvironmentObject private var store: AppStore
     @State private var selectedWeekLabel: String? = nil
 
-    private let calendar = Calendar(identifier: .iso8601)
+    private let savedDarkGreen = Color(red: 0.0, green: 0.45, blue: 0.2)
+
+    private let isoCal: Calendar = {
+        var c = Calendar(identifier: .iso8601) // week starts Monday
+        c.timeZone = .current
+        return c
+    }()
+
+    private func startOfWeekMonday(_ date: Date) -> Date {
+        let comps = isoCal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
+        return isoCal.date(from: comps) ?? isoCal.startOfDay(for: date)
+    }
+
+    private var thisWeekStart: Date { startOfWeekMonday(Date()) }
+    private var thisWeekEnd: Date {
+        isoCal.date(byAdding: .day, value: 7, to: thisWeekStart)
+        ?? thisWeekStart.addingTimeInterval(7 * 24 * 3600)
+    }
 
     private func weekLabel(for date: Date) -> String {
         let f = DateFormatter()
@@ -955,6 +970,44 @@ struct WeeklyProgressView: View {
         return f.string(from: date)
     }
 
+    private func moneySum(_ items: [ReceiptItem]) -> Double {
+        items.reduce(0) { acc, it in
+            if let t = it.totalPrice { return acc + t }
+            if let ppu = it.pricePerUnit { return acc + ppu * Double(max(1, it.quantity)) }
+            return acc
+        }
+    }
+
+    // ✅ Saved (this week) = items marked used in this week
+    private var savedThisWeek: Double {
+        let saved = store.items.filter { it in
+            guard it.isUsed, let usedAt = it.usedAt else { return false }
+            return usedAt >= thisWeekStart && usedAt < thisWeekEnd
+        }
+        return moneySum(saved)
+    }
+
+    // ✅ Pending (this week) = not used, not expired, expiring this week
+    private var pendingThisWeek: Double {
+        let pending = store.items.filter { it in
+            guard !it.isUsed, it.urgency() != .expired else { return false }
+            guard let exp = ISO8601Helper.formatter.date(from: it.effectiveExpiryISO8601) else { return false }
+            return exp >= thisWeekStart && exp < thisWeekEnd
+        }
+        return moneySum(pending)
+    }
+
+    // ✅ Wasted (this week) = expired this week (and not used)
+    private var wastedThisWeek: Double {
+        let wasted = store.items.filter { it in
+            guard !it.isUsed, it.urgency() == .expired else { return false }
+            guard let exp = ISO8601Helper.formatter.date(from: it.effectiveExpiryISO8601) else { return false }
+            return exp >= thisWeekStart && exp < thisWeekEnd
+        }
+        return moneySum(wasted)
+    }
+
+    // ✅ Chart should show week-over-week Saved/Wasted only
     private struct BarPoint: Identifiable, Equatable {
         let id = UUID()
         let weekStart: Date
@@ -987,100 +1040,128 @@ struct WeeklyProgressView: View {
         WeeklyProgressView.currencyFormatter.string(from: NSNumber(value: value)) ?? ""
     }
 
-    @ViewBuilder
-    private var statsOverviewSection: some View {
-        let current = store.currentWeekBucket()
-        Section {
-            HStack(spacing: 12) {
-                StatTile(
-                    mainTitle: "Potential savings",
-                    subtitle: "This week",
-                    amount: formattedCurrency(current.potential),
-                    color: .green,
-                    fixedHeight: 70
-                )
-                .frame(maxWidth: .infinity)
-
-                StatTile(
-                    mainTitle: "Money Lost",
-                    subtitle: "This week",
-                    amount: formattedCurrency(current.wasted),
-                    color: .red,
-                    fixedHeight: 70
-                )
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.top, 30)
-            .padding(.bottom, 12)
-            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-        }
-    }
-
-    @ViewBuilder
-    private var weeklyChartSection: some View {
-        let points = barPoints
-        let weekBuckets = buckets
-        Section("Weekly Progress") {
-            Chart(points) { point in
-                BarMark(
-                    x: .value("Week", weekLabel(for: point.weekStart)),
-                    y: .value("Amount", point.value)
-                )
-                .position(by: .value("Kind", point.kind))
-                .foregroundStyle(point.kind == "Saved" ? .green.opacity(0.65) : .red.opacity(0.75))
-                .cornerRadius(3)
-            }
-            .frame(height: 220)
-            .chartYAxis {
-                AxisMarks(position: .leading)
-            }
-            .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 8)) { value in
-                    AxisGridLine()
-                    AxisTick()
-                    AxisValueLabel(centered: true)
-                }
-            }
-            .chartXSelection(value: $selectedWeekLabel)
-            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: weekBuckets)
-            .padding(.vertical, 8)
-            .listRowBackground(Color.clear)
-
-            if let selected = selectedWeekLabel, let b = weekBuckets.first(where: { weekLabel(for: $0.weekStart) == selected }) {
-                GlassCard {
-                    HStack(spacing: 12) {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-                            .font(.system(size: 22))
-                            .foregroundStyle(.primary)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Selected: \(selected)")
-                                .font(.headline)
-                            HStack(spacing: 12) {
-                                Label(formattedCurrency(b.saved), systemImage: "checkmark.seal.fill")
-                                    .foregroundStyle(.green)
-                                Label(formattedCurrency(b.wasted), systemImage: "xmark.octagon.fill")
-                                    .foregroundStyle(.red)
-                            }
-                            .font(.subheadline.weight(.semibold))
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 6)
-                }
-                .listRowBackground(Color.clear)
-            }
-        }
-    }
-
-
     var body: some View {
         List {
-            statsOverviewSection
-            weeklyChartSection
+
+            // ✅ Top tiles (same width + same height)
+            Section {
+                let tileH: CGFloat = 104
+
+                HStack(spacing: 12) {
+                    StatTile(
+                        mainTitle: "Savings",
+                        subtitle: "This week",
+                        amount: formattedCurrency(savedThisWeek),
+                        color: savedDarkGreen,
+                        secondaryLabel: "Pending",
+                        secondaryAmount: formattedCurrency(pendingThisWeek),
+                        secondaryColor: .green,
+                        fixedHeight: tileH
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: tileH)
+                    .compositingGroup()
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                    StatTile(
+                        mainTitle: "Wasted",
+                        subtitle: "This week",
+                        amount: formattedCurrency(wastedThisWeek),
+                        color: .red,
+                        fixedHeight: tileH
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: tileH)
+                    .compositingGroup()
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                }
+                .padding(.vertical, 4)
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+
+            Section("Weekly Savings vs Waste") {
+
+                // ✅ Simple legend (always visible)
+                HStack(spacing: 14) {
+                    HStack(spacing: 6) {
+                        Capsule().fill(savedDarkGreen).frame(width: 18, height: 6)
+                        Text("Saved").font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 6) {
+                        Capsule().fill(Color.red.opacity(0.75)).frame(width: 18, height: 6)
+                        Text("Wasted").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.top, 6)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+                Chart(barPoints) { point in
+                    BarMark(
+                        x: .value("Week", weekLabel(for: point.weekStart)),
+                        y: .value("Amount", point.value)
+                    )
+                    .position(by: .value("Kind", point.kind))
+                    .foregroundStyle(point.kind == "Saved" ? savedDarkGreen : .red.opacity(0.75))
+                    .cornerRadius(3)
+                }
+                .frame(height: 200)
+                .chartYAxis {
+                    AxisMarks(position: .leading)
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 8)) { value in
+                        AxisGridLine()
+                        AxisTick()
+                        AxisValueLabel(centered: true)
+                    }
+                }
+                .chartXSelection(value: $selectedWeekLabel)
+                .chartYAxisLabel(position: .leading) {
+                    Text("Amount")
+                        .rotationEffect(.degrees(180))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .chartXAxisLabel("Week", position: .bottom, alignment: .center)
+                .padding(.vertical, 4)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+                // Optional selection detail (kept simple)
+                if let selected = selectedWeekLabel,
+                   let b = buckets.first(where: { weekLabel(for: $0.weekStart) == selected }) {
+                    GlassCard {
+                        HStack(spacing: 12) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                                .font(.system(size: 22))
+                                .foregroundStyle(.primary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Selected: \(selected)")
+                                    .font(.headline)
+                                HStack(spacing: 12) {
+                                    Label(formattedCurrency(b.saved), systemImage: "checkmark.seal.fill")
+                                        .foregroundStyle(.green)
+                                    Label(formattedCurrency(b.wasted), systemImage: "xmark.octagon.fill")
+                                        .foregroundStyle(.red)
+                                }
+                                .font(.subheadline.weight(.semibold))
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+            }
         }
         .listStyle(.plain)
+        .listSectionSpacing(.compact)
+        .scrollDisabled(true)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .navigationTitle("Weekly Progress")

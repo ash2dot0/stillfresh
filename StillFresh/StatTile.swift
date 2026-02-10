@@ -3,47 +3,73 @@ import SwiftUI
 struct StatTile: View {
     let mainTitle: String
     let subtitle: String
+
+    // Primary value (top line)
     let amount: String
     let color: Color
-    var fixedHeight: CGFloat = 112
+
+    // Optional secondary value (second line)
+    var secondaryLabel: String? = nil
+    var secondaryAmount: String? = nil
+    var secondaryColor: Color = .green
+
+    var fixedHeight: CGFloat = 96
+    var cornerRadius: CGFloat = 22
 
     var body: some View {
         GlassCard {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
 
-                VStack(alignment: .leading, spacing: 2) {
-                    GeometryReader { geo in
-                        // Inner width after padding. Clamp and scale to feel like the rest of the UI.
-                        let w = max(0, geo.size.width)
-                        let size = min(19, max(15, w * 0.105))
-
-                        Text(mainTitle)
-                            .font(.system(size: size, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
-                            .allowsTightening(true)
-                    }
-                    .frame(height: 18)
-
-                    Text(subtitle)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .center, spacing: 2) {
+                    Text(mainTitle)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
+
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 }
 
-                Text(amount)
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(color)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(amount)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(color)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    if let secondaryAmount, !secondaryAmount.isEmpty {
+                        HStack(spacing: 6) {
+                            if let secondaryLabel, !secondaryLabel.isEmpty {
+                                Text("\(secondaryLabel):")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.9)
+                            }
+                            Text(secondaryAmount)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(secondaryColor)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                    }
+                }
 
                 Spacer(minLength: 0)
             }
-            .padding(14)
+            .padding(0)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        // ✅ Rounded corners guaranteed (no “one tile looks square” issues)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
         .frame(height: fixedHeight)
     }
 }

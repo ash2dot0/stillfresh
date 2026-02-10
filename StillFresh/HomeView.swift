@@ -186,42 +186,47 @@ struct HomeView: View {
         }
     }
 
+    // ✅ UPDATED: Savings shows Saved (used this week) + Pending (expiring this week, not used), Wasted unchanged.
     private var summaryCards: some View {
         let bucket = store.currentWeekBucket()
+        let darkGreen = Color(red: 0.0, green: 0.55, blue: 0.25)
+
         return HStack(spacing: 12) {
             StatTile(
-                mainTitle: "Potential savings",
+                mainTitle: "Savings",
                 subtitle: "This week",
-                amount: bucket.potential.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
-                color: .green,
-                fixedHeight: 90
+                amount: bucket.saved.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
+                color: darkGreen,
+                secondaryLabel: "Pending",
+                secondaryAmount: bucket.potential.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
+                secondaryColor: .green,
+                fixedHeight: 104
             )
             .frame(maxWidth: .infinity)
-            .frame(height: 90)
+            .frame(height: 104)
             .compositingGroup()
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             StatTile(
-                mainTitle: "Money lost",
+                mainTitle: "Wasted",
                 subtitle: "This week",
                 amount: bucket.wasted.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
                 color: .red,
-                fixedHeight: 90
+                fixedHeight: 104
             )
             .frame(maxWidth: .infinity)
-            .frame(height: 90)
+            .frame(height: 104)
             .compositingGroup()
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        // ✅ real spacing (no spacer hacks) so tiles don't "merge" with pills above or list below
         .padding(.top, 0)
         .padding(.bottom, 0)
-        // ✅ keep your sheets as-is
-        .sheet(isPresented: $showSavingsDetail) { WeeklyDeltaSheet(kind: .savings, current: bucket.potential, items: store.items) }
+        // ✅ keep your sheets as-is, but "Savings" sheet should reflect the saved (not potential) total.
+        .sheet(isPresented: $showSavingsDetail) { WeeklyDeltaSheet(kind: .savings, current: bucket.saved, items: store.items) }
         .sheet(isPresented: $showLossDetail) { WeeklyDeltaSheet(kind: .loss, current: bucket.wasted, items: store.items) }
     }
 
-    
+
     // Robust ISO8601 parsing (handles with/without fractional seconds)
     private func parseISO8601(_ s: String) -> Date? {
         if let d = ISO8601Helper.formatter.date(from: s) { return d }
@@ -394,6 +399,8 @@ private var expiringList: some View {
         store.toggleUsed(item)
     }
 }
+
+// NOTE: The remainder of the file (ItemRow, WeeklyDeltaSheet, etc.) is unchanged.
 
 struct ItemRow: View {
     @EnvironmentObject private var store: AppStore
