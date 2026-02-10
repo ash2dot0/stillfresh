@@ -1134,28 +1134,43 @@ struct WeeklyProgressView: View {
                 // Optional selection detail (kept simple)
                 if let selected = selectedWeekLabel,
                    let b = buckets.first(where: { weekLabel(for: $0.weekStart) == selected }) {
+
                     GlassCard {
-                        HStack(spacing: 12) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
-                                .font(.system(size: 22))
-                                .foregroundStyle(.primary)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Selected: \(selected)")
-                                    .font(.headline)
-                                HStack(spacing: 12) {
-                                    Label(formattedCurrency(b.saved), systemImage: "checkmark.seal.fill")
-                                        .foregroundStyle(.green)
-                                    Label(formattedCurrency(b.wasted), systemImage: "xmark.octagon.fill")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Week of \(selected)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            HStack(spacing: 14) {
+                                HStack(spacing: 8) {
+                                    Circle().fill(savedDarkGreen).frame(width: 7, height: 7)
+                                    Text("Saved")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                    Text(formattedCurrency(b.saved))
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(savedDarkGreen)
+                                }
+
+                                HStack(spacing: 8) {
+                                    Circle().fill(Color.red.opacity(0.85)).frame(width: 7, height: 7)
+                                    Text("Wasted")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                    Text(formattedCurrency(b.wasted))
+                                        .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(.red)
                                 }
-                                .font(.subheadline.weight(.semibold))
+
+                                Spacer(minLength: 0)
                             }
-                            Spacer()
                         }
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 2)
                     }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .animation(.spring(response: 0.25, dampingFraction: 0.9), value: selectedWeekLabel)
                 }
             }
         }
