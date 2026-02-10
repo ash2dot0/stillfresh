@@ -38,19 +38,19 @@ struct ItemDetailView: View {
                         Text(item.name).font(.headline)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
             }
 
-            Section("This purchase") {
+            Section("This Purchase") {
                 detailRow("Quantity", "\(item.quantity)")
                 if let ppu = item.pricePerUnit { detailRow("Price / unit", currency(ppu)) }
                 if let total = item.totalPrice { detailRow("Total price", currency(total)) }
                 detailRow("Bought on", formatDate(item.purchasedAt))
                 detailRow("Storage", storageLabel(item.selectedStorage))
-                detailRow("Expires", formatDate(expiryDate(for: item)))
+                detailRow("Expires", formatDate(expiryDate(for: item)), valueColor: .red)
             }
 
-            Section("AI expiry estimates") {
+            Section("Expiry Estimates") {
                 HStack(alignment: .top, spacing: 12) {
                     expiryColumn(label: "Pantry", date: expiryFor(item, mode: .pantry))
                     Divider().frame(height: 28)
@@ -62,7 +62,7 @@ struct ItemDetailView: View {
             }
 
             // ✅ Purchase history section (NO PurchaseItemsView usage)
-            Section("Purchase history") {
+            Section("Purchase History") {
                 if purchaseGroupsForThisItem.isEmpty {
                     Text("No purchase history found.")
                         .foregroundStyle(.secondary)
@@ -139,12 +139,12 @@ struct ItemDetailView: View {
         let thisItemQuantity: Int
     }
 
-    private func detailRow(_ title: String, _ value: String) -> some View {
+    private func detailRow(_ title: String, _ value: String, valueColor: Color = .secondary) -> some View {
         HStack {
             Text(title)
             Spacer()
             Text(value)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(valueColor)
                 .multilineTextAlignment(.trailing)
         }
     }

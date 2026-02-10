@@ -220,6 +220,9 @@ final class AppStore: ObservableObject {
             ReceiptItem(name: "Avocados", quantity: 3, defaultStorage: .pantry,
                         expiryByStorageISO8601: expiryMap(purchasedAt: purchaseDates[1], pantryHours: 96, fridgeDays: 7, freezerDays: 60),
                         pricePerUnit: 1.49, totalPrice: 4.47),
+            ReceiptItem(name: "Grapes", quantity: 3, defaultStorage: .pantry,
+                        expiryByStorageISO8601: expiryMap(purchasedAt: purchaseDates[1], pantryHours: 200, fridgeDays: 7, freezerDays: 60),
+                        pricePerUnit: 1.49, totalPrice: 4.47),
             ReceiptItem(name: "Sourdough Bread", quantity: 1, defaultStorage: .pantry,
                         expiryByStorageISO8601: expiryMap(purchasedAt: purchaseDates[1], pantryHours: 72, fridgeDays: 10, freezerDays: 45),
                         pricePerUnit: 4.99, totalPrice: 4.99)

@@ -1,33 +1,36 @@
 import SwiftUI
 
 struct GlassCard<Content: View>: View {
+    @Environment(\.glassCardStyle) private var style
     let content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
 
     var body: some View {
         content
-            .padding(14)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(style.padding)
+            .background(style.material, in: RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
+                    .strokeBorder(style.strokeColor, lineWidth: style.strokeLineWidth)
             )
     }
 }
+
 struct ColorfulCard<Content: View>: View {
+    @Environment(\.colorfulCardStyle) private var style
     let content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
 
     var body: some View {
         content
-            .padding(14)
+            .padding(style.padding)
             .background(
-                LinearGradient(colors: [Color.purple.opacity(0.25), Color.blue.opacity(0.25)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+                LinearGradient(colors: style.colors, startPoint: style.startPoint, endPoint: style.endPoint),
+                in: RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
+                    .strokeBorder(style.strokeColor, lineWidth: style.strokeLineWidth)
             )
     }
 }

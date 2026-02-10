@@ -27,7 +27,7 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 14) {
+                VStack(spacing: 10) {
                     header
                     controlsRow
                     summaryCards
@@ -202,7 +202,7 @@ struct HomeView: View {
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             StatTile(
-                mainTitle: "Wasted",
+                mainTitle: "Money lost",
                 subtitle: "This week",
                 amount: bucket.wasted.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
                 color: .red,
@@ -291,6 +291,14 @@ private var expiringList: some View {
                 }
             }
         }
+        .homeRowStyle({
+            var s = HomeRowStyle()
+            s.iconEmojiSize = 32
+            s.avatarSize = 40
+            s.quantityHorizontalPadding = 8
+            s.quantityVerticalPadding = 4
+            return s
+        }())
     }
 
     private func urgencyRank(_ item: ReceiptItem) -> Int {
@@ -389,6 +397,7 @@ private var expiringList: some View {
 
 struct ItemRow: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.homeRowStyle) private var rowStyle
     let item: ReceiptItem
     let date: Date
     let onMarkUsed: (ReceiptItem) -> Void
@@ -405,7 +414,7 @@ struct ItemRow: View {
     var body: some View {
         GlassCard {
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(spacing: rowStyle.primaryHStackSpacing) {
                     ZStack(alignment: .center) {
                         Circle()
                             .fill(storageColor.opacity(0.18))
@@ -415,36 +424,36 @@ struct ItemRow: View {
                             )
 
                         Text(item.iconEmoji)
-                            .font(.system(size: 32))
+                            .font(.system(size: rowStyle.iconEmojiSize))
 
                         Circle()
                             .fill(.ultraThinMaterial)
-                            .frame(width: 26, height: 26)
+                            .frame(width: rowStyle.storageBadgeSize, height: rowStyle.storageBadgeSize)
                             .overlay(
                                 Image(systemName: storageIcon)
-                                    .font(.system(size: 14, weight: .bold))
+                                    .font(.system(size: rowStyle.storageIconFontSize, weight: .bold))
                                     .foregroundStyle(storageColor)
                             )
-                            .offset(x: 20, y: 14)
+                            .offset(x: rowStyle.storageBadgeOffset.width, y: rowStyle.storageBadgeOffset.height)
                     }
-                    .frame(width: 56, height: 56)
+                    .frame(width: rowStyle.avatarSize, height: rowStyle.avatarSize)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        // Row 1: item name + per-unit details
-                        Text(item.displayName + (item.quantity > 1 ? " ×\(item.quantity)" : ""))
-                            .font(.headline)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.displayName)
+                            .font(rowStyle.titleFont)
                             .lineLimit(1)
 
-                        // Row 2: Expires — in X days
                         Text(expiresText(date))
-                            .font(.subheadline)
+                            .font(rowStyle.subtitleFont.bold())
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
 
-                        // Row 3: buy date
                         Text("Bought: \(formatDate(item.purchasedAt))")
-                            .font(.caption)
+                            .font(rowStyle.smallSubtitleFont)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
+                    .padding(.leading, 8)
 
                     Spacer()
 
@@ -455,32 +464,31 @@ struct ItemRow: View {
                     } label: {
                         Text(item.quantityLabel)
                     }
-                    .font(.caption.weight(.bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, rowStyle.quantityHorizontalPadding)
+                    .padding(.vertical, rowStyle.quantityVerticalPadding)
                     .background(badgeColor.opacity(0.15), in: Capsule())
                     .foregroundStyle(badgeColor)
                     .buttonStyle(.plain)
                 }
-                GeometryReader { geo in
-                    let fraction = progressFraction()
+                HStack(spacing: rowStyle.secondaryHStackSpacing) {
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color.secondary.opacity(0.15)).frame(height: 4)
-                        Capsule().fill(progressColor()).frame(width: max(0, fraction) * geo.size.width, height: 4)
+                        Capsule().fill(Color.secondary.opacity(0.15))
+                        GeometryReader { geo in
+                            Capsule()
+                                .fill(progressColor())
+                                .frame(width: progressWidth(in: geo.size.width))
+                        }
                     }
-                }
-                .frame(height: 6)
-                .padding(.top, 6)
-
-                HStack {
-                    Spacer()
+                    .frame(height: rowStyle.progressHeight)
+                    .frame(maxWidth: .infinity)
 
                     if item.isUsed {
                         Label("Used", systemImage: "checkmark")
-                            .font(.caption.weight(.semibold))
+                            .font(.caption2.weight(.semibold))
                             .foregroundStyle(.green)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
                             .background(.green.opacity(0.12), in: Capsule())
                             .overlay(Capsule().stroke(.green.opacity(0.25), lineWidth: 1))
                     } else {
@@ -492,11 +500,13 @@ struct ItemRow: View {
                         }
                         .font(.caption.weight(.semibold))
                         .buttonStyle(.bordered)
+                        .controlSize(.regular)
                     }
                 }
-                .padding(.top, 6)
+                .padding(.top, rowStyle.topSpacing)
             }
         }
+        .glassCardStyle(GlassCardStyle(padding: 6))
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .contextMenu {
             Button { showEditItemSheet = true } label: { Label("Edit Item", systemImage: "pencil") }
@@ -544,6 +554,11 @@ struct ItemRow: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .onChange(of: showEditQuantity) { oldValue, newValue in
+            if newValue {
+                editedQuantity = max(1, item.quantity)
+            }
+        }
         .sheet(isPresented: $showEditQuantity) {
             NavigationStack {
                 VStack(alignment: .leading, spacing: 16) {
@@ -563,6 +578,7 @@ struct ItemRow: View {
 
                     Spacer()
                 }
+                .onAppear { editedQuantity = max(1, item.quantity) }
                 .padding(16)
                 .navigationTitle("Edit Quantity")
                 .navigationBarTitleDisplayMode(.inline)
@@ -645,22 +661,38 @@ struct ItemRow: View {
 
     private func expiryDate() -> Date? { ISO8601Helper.formatter.date(from: item.effectiveExpiryISO8601) }
 
+    private func daysUntilExpiry() -> Int? {
+        guard let end = expiryDate() else { return nil }
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        let startOfEnd = Calendar.current.startOfDay(for: end)
+        return Calendar.current.dateComponents([.day], from: startOfToday, to: startOfEnd).day
+    }
+
     private func progressFraction() -> CGFloat {
         guard let end = expiryDate() else { return 0 }
         let start = item.purchasedAt
+
         let total = end.timeIntervalSince(start)
-        if total <= 0 { return 0 }
-        let remaining = end.timeIntervalSince(Date())
-        let fraction = remaining / total
+        if total <= 0 { return 1 }
+
+        let elapsed = Date().timeIntervalSince(start)
+        let fraction = elapsed / total
+
         return CGFloat(min(1, max(0, fraction)))
     }
 
     private func progressColor() -> Color {
-        switch item.urgency() {
-        case .expired: return .red
-        case .soon: return .orange
-        case .fresh: return .green
-        }
+        let days = daysUntilExpiry() ?? 0
+        if days < 0 { return .gray }        // expired
+        if days == 0 { return .red }        // expires today
+        if days <= 2 { return .red }
+        else if days <= 7 { return .yellow }
+        else { return .green }
+    }
+
+    private func progressWidth(in totalWidth: CGFloat) -> CGFloat {
+        let fraction = progressFraction()
+        return max(0, fraction) * totalWidth
     }
 }
 
@@ -741,5 +773,4 @@ private struct WeeklyDeltaSheet: View {
         .presentationDetents([.height(320), .medium])
     }
 }
-
 
