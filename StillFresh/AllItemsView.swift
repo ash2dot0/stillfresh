@@ -1,6 +1,39 @@
 import SwiftUI
 import Charts
 
+struct PressableButtonStyle: ButtonStyle {
+    var scale: CGFloat = 0.97
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.8), value: configuration.isPressed)
+    }
+}
+
+struct PressableEffect: ViewModifier {
+    @GestureState private var isPressed = false
+    var scale: CGFloat = 0.97
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPressed ? scale : 1)
+            .opacity(isPressed ? 0.85 : 1)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($isPressed) { _, state, _ in
+                        state = true
+                    }
+            )
+            .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isPressed)
+    }
+}
+
+extension View {
+    func pressableEffect(scale: CGFloat = 0.97) -> some View {
+        self.modifier(PressableEffect(scale: scale))
+    }
+}
+
 // MARK: - Smart + bounded navigation for All tab
 
 private enum AllNav: Hashable {
@@ -215,7 +248,7 @@ struct AllItemsView: View {
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableButtonStyle())
 
             // ✅ Entire row tappable
             Button {
@@ -244,7 +277,7 @@ struct AllItemsView: View {
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableButtonStyle())
 
             // ✅ Entire row tappable
             Button {
@@ -273,7 +306,7 @@ struct AllItemsView: View {
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableButtonStyle())
 
             // ✅ Entire row tappable
             Button {
@@ -302,7 +335,7 @@ struct AllItemsView: View {
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableButtonStyle())
 
             // ✅ Entire row tappable
             Button {
@@ -323,7 +356,7 @@ struct AllItemsView: View {
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableButtonStyle())
         }
     }
 
@@ -341,7 +374,7 @@ struct AllItemsView: View {
                     } label: {
                         AllItemRow(item: item)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableButtonStyle())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
@@ -422,7 +455,7 @@ private struct PurchasesView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableButtonStyle())
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
@@ -617,7 +650,7 @@ struct AllItemsListView: View {
             } label: {
                 AllItemRow(item: item)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableButtonStyle())
             .contentShape(Rectangle())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -720,7 +753,7 @@ struct MinimalSelectionBar: View {
                     .font(.system(size: 18, weight: .semibold))
                     .symbolRenderingMode(.hierarchical)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableButtonStyle())
             .accessibilityLabel("Clear selection")
 
             Button(role: .destructive, action: onDelete) {
@@ -729,7 +762,7 @@ struct MinimalSelectionBar: View {
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.red.opacity(0.55))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableButtonStyle())
             .disabled(selectedCount == 0)
             .accessibilityLabel("Delete selected")
         }
@@ -813,12 +846,12 @@ private struct AllItemRow: View {
                     } label: {
                         Text(item.quantityLabel)
                     }
-                    .font(.caption.weight(.bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .font(.system(size: 14, weight: .bold))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
                     .background(badgeColor.opacity(0.15), in: Capsule())
                     .foregroundStyle(badgeColor)
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableButtonStyle())
                 }
 
                 HStack(spacing: 10) {
@@ -846,9 +879,10 @@ private struct AllItemRow: View {
                             store.toggleUsed(item)
                             Haptics.selection()
                         }
-                        .font(.caption.weight(.semibold))
-                        .buttonStyle(.bordered)
+                        .font(.system(size: 14, weight: .semibold))
                         .controlSize(.regular)
+                        .pressableEffect()
+                        .buttonStyle(.bordered)
                     }
                 }
                 .padding(.top, 2)
@@ -1336,7 +1370,7 @@ struct StoragePickerSheet: View {
                             }
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressableButtonStyle())
                     }
                 }
             }

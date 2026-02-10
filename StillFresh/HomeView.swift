@@ -471,12 +471,12 @@ struct ItemRow: View {
                     } label: {
                         Text(item.quantityLabel)
                     }
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, rowStyle.quantityHorizontalPadding)
-                    .padding(.vertical, rowStyle.quantityVerticalPadding)
+                    .font(.system(size: 14, weight: .bold))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
                     .background(badgeColor.opacity(0.15), in: Capsule())
                     .foregroundStyle(badgeColor)
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableButtonStyle())
                 }
                 HStack(spacing: rowStyle.secondaryHStackSpacing) {
                     ZStack(alignment: .leading) {
@@ -499,15 +499,14 @@ struct ItemRow: View {
                             .background(.green.opacity(0.12), in: Capsule())
                             .overlay(Capsule().stroke(.green.opacity(0.25), lineWidth: 1))
                     } else {
-                        Button {
-                            onMarkUsed(item)
+                        Button("Mark used") {
+                            store.toggleUsed(item)
                             Haptics.selection()
-                        } label: {
-                            Text("Mark used")
                         }
-                        .font(.caption.weight(.semibold))
-                        .buttonStyle(.bordered)
+                        .font(.system(size: 14, weight: .semibold))
                         .controlSize(.regular)
+                        .pressableEffect()
+                        .buttonStyle(.bordered)
                     }
                 }
                 .padding(.top, rowStyle.topSpacing)
