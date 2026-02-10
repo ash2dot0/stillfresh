@@ -355,6 +355,9 @@ private struct PurchasesView: View {
     @EnvironmentObject private var store: AppStore
     let onSelectPurchaseDay: (Date) -> Void
 
+    @State private var showDeleteConfirm = false
+    @State private var pendingDeleteDay: Date? = nil
+
     var body: some View {
         List {
             if purchases.isEmpty {
@@ -388,6 +391,14 @@ private struct PurchasesView: View {
                     }
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            pendingDeleteDay = purchase.day
+                            showDeleteConfirm = true
+                        } label: {
+                            Label("Delete Purchase", systemImage: "trash")
+                        }
+                    }
                 }
             }
         }
@@ -397,6 +408,24 @@ private struct PurchasesView: View {
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .navigationTitle("Purchases")
+        .alert("Delete entire purchase?", isPresented: $showDeleteConfirm, presenting: pendingDeleteDay) { day in
+            Button("Delete", role: .destructive) {
+                let cal = Calendar.current
+                let dayStart = cal.startOfDay(for: day)
+                let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(24 * 3600)
+                let itemsToDelete = store.items.filter { item in
+                    item.purchasedAt >= dayStart && item.purchasedAt < dayEnd
+                }
+                store.removeItems(itemsToDelete)
+                Haptics.notify(.success)
+                pendingDeleteDay = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteDay = nil
+            }
+        } message: { day in
+            Text("This will permanently delete all items purchased on \(dateLabel(day)).")
+        }
     }
 
     private struct PurchaseGroup: Identifiable {
