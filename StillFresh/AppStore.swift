@@ -4,8 +4,54 @@ import SwiftUI
 @MainActor
 final class AppStore: ObservableObject {
     @Published var sessions: [ReceiptSession] = []
-    @Published var items: [ReceiptItem] = []
+    @Published var items: [ReceiptItem] = [] { didSet { saveItems() } }
     @Published var snackbar: SnackbarState?
+
+    // MARK: - Persistence (local on-device)
+
+    private var itemsFileURL: URL {
+        let fm = FileManager.default
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = base.appendingPathComponent("StillFresh", isDirectory: true)
+        if !fm.fileExists(atPath: dir.path) {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir.appendingPathComponent("items.json")
+    }
+
+    private func saveItems() {
+        do {
+            var encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted]
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(items)
+            try data.write(to: itemsFileURL, options: [.atomic])
+        } catch {
+            #if DEBUG
+            print("❌ Failed to save items:", error)
+            #endif
+        }
+    }
+
+    private func loadItems() {
+        let url = itemsFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            var decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let decoded = try decoder.decode([ReceiptItem].self, from: data)
+            self.items = decoded
+        } catch {
+            #if DEBUG
+            print("❌ Failed to load items:", error)
+            #endif
+        }
+    }
+
+    init() {
+        loadItems()
+    }
 
     // MARK: - Weekly stats (single source of truth)
 
