@@ -28,6 +28,10 @@ struct AllItemsView: View {
     // Typed stack lets us cap/replace navigation so it never grows endlessly
     @State private var navStack: [AllNav] = []
 
+    @State private var timeTick = Date()
+
+    @State private var dailyTimer: Timer? = nil
+
     // 0 = System, 1 = Light, 2 = Dark
     @AppStorage("sf_appearance") private var appearanceRaw: Int = 0
     private var preferredScheme: ColorScheme? {
@@ -143,6 +147,8 @@ struct AllItemsView: View {
             navStack.removeAll()
             searchText = ""
         }
+        .onAppear { scheduleMidnightTick() }
+        .onDisappear { dailyTimer?.invalidate() }
     }
 
     // MARK: - Smart navigation helpers
@@ -184,6 +190,7 @@ struct AllItemsView: View {
         }
         .listStyle(.insetGrouped)
         .listRowSpacing(10)
+        .id(timeTick)
     }
 
     @ViewBuilder
@@ -347,6 +354,32 @@ struct AllItemsView: View {
             }
         }
     }
+
+    private func secondsUntilNextLocalMidnight(from date: Date = Date()) -> TimeInterval {
+        let cal = Calendar.current
+        let startOfDay = cal.startOfDay(for: date)
+        if let nextMidnight = cal.date(byAdding: .day, value: 1, to: startOfDay) {
+            return nextMidnight.timeIntervalSince(date)
+        }
+        return 24 * 60 * 60
+    }
+
+    private func scheduleMidnightTick() {
+        // Invalidate existing timer
+        dailyTimer?.invalidate()
+
+        let delay = secondsUntilNextLocalMidnight()
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak dailyTimer = dailyTimer] in
+            // Fire tick at midnight
+            timeTick = Date()
+            // Schedule repeating every 24 hours thereafter
+            self.dailyTimer?.invalidate()
+            self.dailyTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { _ in
+                timeTick = Date()
+            }
+            RunLoop.main.add(self.dailyTimer!, forMode: .common)
+        }
+    }
 }
 
 // MARK: - Purchases list
@@ -470,6 +503,9 @@ struct AllItemsListView: View {
     @State private var editMode: EditMode = .inactive
     @State private var selection = Set<UUID>()
     @State private var searchText: String = ""
+    @State private var timeTick = Date()
+
+    @State private var dailyTimer: Timer? = nil
 
     enum SortOption: String, CaseIterable, Identifiable {
         case purchaseDate = "Purchase date"
@@ -493,6 +529,7 @@ struct AllItemsListView: View {
         }
         .listStyle(.plain)
         .listRowSpacing(2)
+        .id(timeTick)
         .environment(\.defaultMinListRowHeight, 0)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
@@ -517,13 +554,19 @@ struct AllItemsListView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .onAppear { selection.removeAll() }
+        .onAppear { 
+            selection.removeAll()
+            scheduleMidnightTick()
+        }
         .onChange(of: editMode) { _, newMode in
             if !newMode.isEditing { selection.removeAll() }
         }
         .onChange(of: store.items) { _, _ in
             let currentIDs = Set(store.items.map(\.id))
             selection = selection.intersection(currentIDs)
+        }
+        .onDisappear {
+            dailyTimer?.invalidate()
         }
         .animation(.spring(response: 0.25, dampingFraction: 0.9), value: isEditing)
         .animation(.spring(response: 0.25, dampingFraction: 0.9), value: selection.count)
@@ -575,6 +618,7 @@ struct AllItemsListView: View {
                 AllItemRow(item: item)
             }
             .buttonStyle(.plain)
+            .contentShape(Rectangle())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
@@ -629,6 +673,28 @@ struct AllItemsListView: View {
         }
 
         return items
+    }
+
+    private func secondsUntilNextLocalMidnight(from date: Date = Date()) -> TimeInterval {
+        let cal = Calendar.current
+        let startOfDay = cal.startOfDay(for: date)
+        if let nextMidnight = cal.date(byAdding: .day, value: 1, to: startOfDay) {
+            return nextMidnight.timeIntervalSince(date)
+        }
+        return 24 * 60 * 60
+    }
+
+    private func scheduleMidnightTick() {
+        dailyTimer?.invalidate()
+        let delay = secondsUntilNextLocalMidnight()
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            timeTick = Date()
+            self.dailyTimer?.invalidate()
+            self.dailyTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { _ in
+                timeTick = Date()
+            }
+            RunLoop.main.add(self.dailyTimer!, forMode: .common)
+        }
     }
 }
 
@@ -787,19 +853,20 @@ private struct AllItemRow: View {
                 }
                 .padding(.top, 2)
             }
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .contextMenu {
+                Button { showEditItemSheet = true } label: { Label("Edit Item", systemImage: "pencil") }
+                Button { showStoragePicker = true } label: { Label("Change Storage", systemImage: "tray.and.arrow.down") }
+                Button { primeEditedDate(); showEditDate = true } label: { Label("Edit Expiration", systemImage: "calendar.badge.clock") }
+                Divider()
+                Button(role: .destructive) {
+                    store.removeItem(item)
+                    Haptics.notify(.warning)
+                } label: { Label("Delete", systemImage: "trash") }
+            }
         }
         .glassCardStyle(GlassCardStyle(padding: 6))
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .contextMenu {
-            Button { showEditItemSheet = true } label: { Label("Edit Item", systemImage: "pencil") }
-            Button { showStoragePicker = true } label: { Label("Change Storage", systemImage: "tray.and.arrow.down") }
-            Button { primeEditedDate(); showEditDate = true } label: { Label("Edit Expiration", systemImage: "calendar.badge.clock") }
-            Divider()
-            Button(role: .destructive) {
-                store.removeItem(item)
-                Haptics.notify(.warning)
-            } label: { Label("Delete", systemImage: "trash") }
-        }
         .sheet(isPresented: $showStoragePicker) {
             StoragePickerSheet(
                 title: "Storage",
