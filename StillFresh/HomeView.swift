@@ -49,22 +49,22 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .center, spacing: 12) {
                     Image(systemName: "drop.degreesign")
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 0) {
                         Text("Expiring soon")
-                            .font(.headline)
+                            .font(.subheadline.weight(.semibold))
                         Text("Showing the next \(daysAhead) day\(daysAhead == 1 ? "" : "s")")
-                            .font(.subheadline)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
 
                     Spacer()
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, 0)
 
-                Divider().opacity(0.15)
+                Divider().opacity(0.1)
 
                 HStack(spacing: 0) {
                     let pantrySelected = activeStorages.contains(.pantry)
@@ -86,7 +86,7 @@ struct HomeView: View {
                     Rectangle()
                         .fill(Color.primary.opacity(0.08))
                         .frame(width: 1)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 4)
                     let fridgeSelected = activeStorages.contains(.fridge)
                     storageIcon(.fridge, color: .blue, selected: fridgeSelected)
                         .overlay(
@@ -106,7 +106,7 @@ struct HomeView: View {
                     Rectangle()
                         .fill(Color.primary.opacity(0.08))
                         .frame(width: 1)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 4)
                     let freezerSelected = activeStorages.contains(.freezer)
                     storageIcon(.freezer, color: .indigo, selected: freezerSelected)
                         .overlay(
@@ -125,6 +125,7 @@ struct HomeView: View {
                         }
                 }
             }
+            .padding(.top, 1)
         }
     }
 
@@ -137,18 +138,18 @@ struct HomeView: View {
     }
 
     private func storageIcon(_ mode: StorageMode, color: Color, selected: Bool) -> some View {
-        VStack(spacing: 1) {
+        VStack(spacing: 0) {
             Image(systemName: mode.iconName)
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(selected ? color : .secondary, selected ? color.opacity(0.3) : Color.secondary.opacity(0.15))
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: 14, weight: .semibold))
             Text(mode.label)
                 .font(.caption2)
                 .foregroundStyle(selected ? .secondary : .tertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 2)
-        .scaleEffect(selected ? 1.0 : 0.96)
+        .padding(.vertical, 0)
+        .scaleEffect(selected ? 0.98 : 0.94)
         .opacity(selected ? 1.0 : 0.6)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selected)
     }
@@ -191,33 +192,57 @@ struct HomeView: View {
         let bucket = store.currentWeekBucket()
         let darkGreen = Color(red: 0.0, green: 0.55, blue: 0.25)
 
-        return HStack(spacing: 12) {
-            StatTile(
-                mainTitle: "Savings",
-                subtitle: "This week",
-                amount: bucket.saved.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
-                color: darkGreen,
-                secondaryLabel: "Pending",
-                secondaryAmount: bucket.potential.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
-                secondaryColor: .green,
-                fixedHeight: 104
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 104)
-            .compositingGroup()
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        return VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                let statTileHeight: CGFloat = 75
+                StatTile(
+                    mainTitle: "Savings",
+                    subtitle: "This week",
+                    amount: bucket.saved.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
+                    color: darkGreen,
+                    secondaryLabel: "Pending",
+                    secondaryAmount: bucket.potential.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
+                    secondaryColor: .green,
+                    fixedHeight: statTileHeight
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.green.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(darkGreen.opacity(0.6), lineWidth: 1)
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: statTileHeight)
+                .compositingGroup()
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-            StatTile(
-                mainTitle: "Wasted",
-                subtitle: "This week",
-                amount: bucket.wasted.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
-                color: .red,
-                fixedHeight: 104
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 104)
-            .compositingGroup()
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                StatTile(
+                    mainTitle: "Wasted",
+                    subtitle: "This week",
+                    amount: bucket.wasted.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")),
+                    color: .red,
+                    fixedHeight: statTileHeight
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.red.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.red.opacity(0.6), lineWidth: 1)
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: statTileHeight)
+                .compositingGroup()
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            Rectangle()
+                .fill(Color.primary.opacity(0.10))
+                .frame(height: 1)
+                .overlay(Rectangle().stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+                .padding(.top, 4)
         }
         .padding(.top, 0)
         .padding(.bottom, 0)
@@ -302,6 +327,9 @@ private var expiringList: some View {
             s.avatarSize = 40
             s.quantityHorizontalPadding = 8
             s.quantityVerticalPadding = 4
+            s.storageBadgeSize = 18
+            s.storageIconFontSize = 11
+            s.storageBadgeOffset = CGSize(width: 12, height: 8)
             return s
         }())
     }

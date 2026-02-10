@@ -1188,6 +1188,10 @@ struct WeeklyProgressView: View {
                         secondaryColor: .green,
                         fixedHeight: tileH
                     )
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color.green.opacity(0.08))
+                    )
                     .frame(maxWidth: .infinity)
                     .frame(height: tileH)
                     .compositingGroup()
@@ -1199,6 +1203,10 @@ struct WeeklyProgressView: View {
                         amount: formattedCurrency(wastedThisWeek),
                         color: .red,
                         fixedHeight: tileH
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color.red.opacity(0.08))
                     )
                     .frame(maxWidth: .infinity)
                     .frame(height: tileH)
